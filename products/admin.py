@@ -19,7 +19,7 @@ class TagAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ("name", "category", "price", "is_available")
-    list_filter = ("category", "is_available", "tags")
+    list_display = ("name", "category", "price", "is_available", "is_featured")
+    list_filter = ("category", "is_available", "is_featured", "tags")
     search_fields = ("name", "description")
     prepopulated_fields = {"slug": ("name",)}
