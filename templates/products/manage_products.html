@@ -31,6 +31,7 @@
               <td>
                 <a href="{% url 'products:manage_product_update' product.pk %}"
                    class="link-hover font-semibold">{{ product.name }}</a>
+                {% include "products/partials/_featured_badge.html" %}
                 {% if product.tagline %}
                   <p class="text-xs italic opacity-60">{{ product.tagline }}</p>
                 {% endif %}

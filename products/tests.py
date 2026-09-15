@@ -50,6 +50,10 @@ def test_product_slug_unique(product, category):
         )
 
 
+def test_products_are_not_featured_by_default(product):
+    assert not product.is_featured
+
+
 def test_product_get_absolute_url(product):
     assert product.get_absolute_url() == "/products/seraphine-home-hub/"
 
@@ -93,6 +97,34 @@ def test_detail_shows_availability(client, unavailable_product):
     response = client.get(unavailable_product.get_absolute_url())
 
     assert "Unavailable" in response.content.decode()
+
+
+def test_catalog_badges_only_featured_products(client, product, featured_product):
+    """The Featured badge rides along with the featured card and no other."""
+    response = client.get(reverse("products:catalog"))
+
+    page = response.content.decode()
+    assert product.name in page
+    assert featured_product.name in page
+    assert page.count(">Featured<") == 1
+
+
+def test_detail_shows_featured_badge(client, featured_product):
+    response = client.get(featured_product.get_absolute_url())
+
+    assert "Featured" in response.content.decode()
+
+
+def test_detail_omits_featured_badge_for_ordinary_products(client, product):
+    response = client.get(product.get_absolute_url())
+
+    assert "Featured" not in response.content.decode()
+
+
+def test_category_page_shows_featured_badge(client, featured_product):
+    response = client.get(featured_product.category.get_absolute_url())
+
+    assert "Featured" in response.content.decode()
 
 
 def test_category_page_lists_only_its_products(client, product):

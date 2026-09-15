@@ -123,6 +123,59 @@ def test_staff_can_mark_a_product_unavailable(client, staff_user, product):
     assert not product.is_available
 
 
+def test_new_products_are_unfeatured_unless_the_box_is_ticked(
+    client, staff_user, category
+):
+    client.force_login(staff_user)
+
+    client.post(reverse("products:manage_product_create"), product_data(category))
+
+    assert not Product.objects.get(slug="mindsync-sleep-halo").is_featured
+
+
+def test_staff_can_feature_a_product(client, staff_user, product):
+    client.force_login(staff_user)
+    data = product_data(
+        product.category, name=product.name, slug=product.slug, is_featured="on"
+    )
+
+    client.post(
+        reverse("products:manage_product_update", kwargs={"pk": product.pk}), data
+    )
+
+    product.refresh_from_db()
+    assert product.is_featured
+
+
+def test_staff_can_unfeature_a_product(client, staff_user, featured_product):
+    client.force_login(staff_user)
+    data = product_data(
+        featured_product.category,
+        name=featured_product.name,
+        slug=featured_product.slug,
+    )  # an unchecked checkbox is simply absent
+
+    client.post(
+        reverse("products:manage_product_update", kwargs={"pk": featured_product.pk}),
+        data,
+    )
+
+    featured_product.refresh_from_db()
+    assert not featured_product.is_featured
+
+
+def test_manage_list_badges_featured_products(
+    client, staff_user, product, featured_product
+):
+    client.force_login(staff_user)
+
+    page = client.get(reverse("products:manage_products")).content.decode()
+
+    assert product.name in page
+    assert featured_product.name in page
+    assert page.count(">Featured<") == 1
+
+
 def test_staff_can_delete_a_product(client, staff_user, product):
     client.force_login(staff_user)
 
@@ -146,6 +199,14 @@ def test_manage_list_shows_unavailable_products(
 
 
 # --- Form validation ---------------------------------------------------------
+
+
+def test_product_form_offers_the_featured_checkbox(client, staff_user):
+    client.force_login(staff_user)
+
+    page = client.get(reverse("products:manage_product_create")).content.decode()
+
+    assert 'name="is_featured"' in page
 
 
 def test_price_must_be_positive(client, staff_user, category):
