@@ -42,6 +42,7 @@ class DashboardView(StaffRequiredMixin, TemplateView):
                 "period_label": label,
                 "bucket": bucket,
                 "revenue": queries.total_revenue(since),
+                "discounts_given": queries.discounts_given(since),
                 "order_count": queries.order_count(since),
                 "average_order_value": queries.average_order_value(since),
                 "series": series,

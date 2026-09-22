@@ -34,6 +34,11 @@
         <div class="stat-value">${{ average_order_value|floatformat:2|intcomma }}</div>
         <div class="stat-desc">revenue ÷ orders</div>
       </div>
+      <div class="stat">
+        <div class="stat-title">Discounts given</div>
+        <div class="stat-value">${{ discounts_given|floatformat:2|intcomma }}</div>
+        <div class="stat-desc">already deducted from revenue</div>
+      </div>
     </div>
 
     <div class="grid items-start gap-8 lg:grid-cols-5">
@@ -74,7 +79,7 @@
 
       <div class="card bg-base-100 shadow-md lg:col-span-2">
         <div class="card-body">
-          <h3 class="card-title text-base">Top products <span class="text-sm font-normal opacity-60">by revenue</span></h3>
+          <h3 class="card-title text-base">Top products <span class="text-sm font-normal opacity-60">by gross sales</span></h3>
           {% if top_products %}
             <table class="table table-sm mt-2">
               <thead>
@@ -82,7 +87,7 @@
                   <th></th>
                   <th>Product</th>
                   <th class="text-right">Units</th>
-                  <th class="text-right">Revenue</th>
+                  <th class="text-right">Gross</th>
                 </tr>
               </thead>
               <tbody>

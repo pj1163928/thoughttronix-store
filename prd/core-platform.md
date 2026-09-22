@@ -123,3 +123,25 @@ Coverage priorities, in order:
 8. **The seed command** — runs twice without error, produces the same counts both times (the idempotence contract).
 
 No browser automation, no JavaScript testing: HTMX endpoints are tested as Django views returning partial HTML.
+---
+
+## Amendment — discount codes (2026-09-21)
+
+The `coupon_code` seam described above was activated, and reshaped in the
+process. The code does not arrive as a string argument to `place_order`:
+customers apply it on the cart page, so it is held on `Cart.discount_code`
+and `place_order` reads it from the cart it was already given. The
+parameter was removed rather than kept beside the real path, so there is
+one source of truth for which code an order is using.
+
+`DiscountCode` lives in `orders`. It discounts either the whole order or
+one product's line (`product` is null for the former), by a percentage or
+a fixed amount. A percentage is proportional and scales with the quantity
+bought; a fixed amount means what it says and comes off once, capped at
+what it is discounting. Codes are retired, never deleted, and an `Order`
+freezes the code's name and the dollars it took off — so retiring or
+re-pricing a code cannot rewrite an order that already used it.
+
+Liveness is checked in two places and implemented in one: the cart page,
+for a message the customer can act on, and inside `place_order`, because
+a code can expire between the two.

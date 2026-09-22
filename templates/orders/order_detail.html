@@ -56,9 +56,22 @@
       </div>
     </div>
     <div class="card bg-base-100 shadow-md">
-      <div class="card-body items-end justify-center">
-        <p class="text-sm uppercase tracking-wide opacity-60">Order total</p>
-        <p class="text-3xl font-bold text-primary">${{ order.total|intcomma }}</p>
+      <div class="card-body justify-center">
+        {% if order.discount_amount %}
+          <p class="flex justify-between text-sm">
+            <span class="opacity-70">Subtotal</span>
+            <span>${{ order.subtotal|intcomma }}</span>
+          </p>
+          <p class="flex justify-between text-sm text-success">
+            <span>Discount ({{ order.discount_code }})</span>
+            <span>−${{ order.discount_amount|intcomma }}</span>
+          </p>
+          <div class="divider my-1"></div>
+        {% endif %}
+        <div class="text-right">
+          <p class="text-sm uppercase tracking-wide opacity-60">Order total</p>
+          <p class="text-3xl font-bold text-primary">${{ order.total|intcomma }}</p>
+        </div>
       </div>
     </div>
   </div>

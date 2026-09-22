@@ -93,3 +93,45 @@ Each entry has this shape:
   re-running the full suite. The two catalog/back-office badge tests count
   `">Featured<"` occurrences rather than testing mere presence, so they
   catch both a missing badge and one leaking onto every card.
+
+## Discount codes — `/grill-me`, then implementation (2026-09-21)
+
+- **Prompt:** the `/grill-me` skill, given the feature in the user's own
+  words: a code typed at checkout that drops the order total; codes that
+  expire when the promotion ends; an expired code showing a message
+  without breaking the page; codes that can be created and retired, where
+  retiring changes nothing about orders that already used them; and codes
+  that work for a whole order or for a single item ("50% off Seraphine for
+  a given date").
+
+- **Method:** sixteen questions, one at a time, each naming the part of
+  the design it settled and recommending an option. Everything the
+  codebase could answer was read rather than asked — the dormant
+  `coupon_code` seam, `OrderItem`'s denormalisation precedent,
+  `Product.is_available` as the retire pattern, the six call sites of
+  `cart.total()`, and the existing `UpdateOrderStatusView` shape.
+
+- **Where the user overrode the recommendation:** twice, and both changed
+  the design. `kind` + `value` instead of percent-only forced a decision
+  about what "$20 off Seraphine" means when three are in the cart (it
+  means $20, once). Applying on the **cart page** instead of at checkout
+  opened a real gap — a code can expire between applying and paying — so
+  validation became two call sites over one implementation, plus a
+  `dispatch` check and a transactional backstop.
+
+- **Found while reading, not while building:** `CheckoutView.form_valid`
+  called `place_order` with no `try`/`except`, so its `ValueError` would
+  have rendered a Django 500 — the "blank page" the user asked to design
+  against, already latent in the code. Fixed here.
+
+- **Found by a failing test:** the back office's success message printed
+  the code as typed, not as stored. The real defect behind it was that
+  `ModelForm` checked uniqueness against the un-normalised string, so
+  `spring50` would pass validation beside an existing `SPRING50` and then
+  fail at the database. Normalising in `clean_code` fixed both; there is a
+  regression test for the duplicate case.
+
+- **Corrected:** two of my own test expectations were arithmetic errors
+  (half of 2 × $349.99 is $349.99, not $350.00), and one assumed Django
+  escapes literal template text. The implementation was right; the tests
+  were wrong.

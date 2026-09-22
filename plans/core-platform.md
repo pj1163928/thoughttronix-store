@@ -131,3 +131,36 @@
 **Out of bounds:** nothing new. This phase adds no features — it finishes the ones that exist.
 
 ---
+## Phase 7 — Discount codes (2026-09-21)
+
+Added after the core platform, against the seam the PRD reserved for it.
+See the PRD amendment for the design and for why the seam's signature
+changed.
+
+1. `orders.DiscountCode` + `DiscountCodeQuerySet` — `is_live`, `status`,
+   `label`, `discount_for(cart)`, `live()`, `find(raw)`; codes normalise
+   to capitals on save and on lookup.
+2. `Cart` — a nullable `discount_code` FK; `total()` becomes the amount
+   due and the old sum-of-lines behaviour becomes `subtotal()`, so
+   `place_order` and all three templates are discount-aware unchanged.
+3. `Order` — `discount_code_used` (SET_NULL), the frozen `discount_code`
+   string, `discount_amount`, and a `subtotal` property.
+4. `ApplyDiscountForm` — the deliberate exception to `CheckoutForm`'s
+   no-`clean_*` rule; a specific sentence for every way a code can fail.
+5. Cart page HTMX apply/remove; checkout re-checks in `dispatch` before
+   card entry; `form_valid` turns `place_order`'s `ValueError` backstop
+   into a message instead of a 500.
+6. Back office: a fifth tab, list/create/edit, and retire as its own POST
+   action — `is_active` is not on the edit form.
+7. Dashboard: `discounts_given()` and a fourth stat tile; `top_products`
+   relabelled "by gross sales", since it sums lines before order-level
+   discounts.
+
+**Verification.** 40 new tests, including the window's exact boundaries,
+the percent/amount quantity asymmetry, over-clamping, rounding, and the
+headline guarantee — retire and re-price a used code, then assert the
+order is untouched. Manually exercised against seeded data end to end.
+
+**Out of bounds:** stacking multiple codes, per-customer usage limits,
+category-scoped codes (a nullable `category` FK is the additive next
+step), and allocating order-level discounts across order lines.

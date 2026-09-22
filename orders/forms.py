@@ -1,16 +1,25 @@
-"""The checkout form — the codebase's showcase of declarative validation.
+"""The order forms.
 
+``CheckoutForm`` is the codebase's showcase of declarative validation.
 Every rule is visible at its field declaration, in the style of data
 annotations: field types validate (``EmailField``), field arguments
 validate (``required``, ``max_length``, ``ChoiceField``), and the
 ``validators=[...]`` list carries the rest. No ``clean_*`` methods
-and no ``clean()`` — none of its current rules need imperative validation.
+and no ``clean()`` — none of its rules need imperative validation.
+
+``ApplyDiscountForm`` is the deliberate exception, and the reason is
+worth naming: whether a code exists, is live, and matches this cart are
+questions only the database can answer, and each wrong answer needs its
+own sentence for the customer. That is what ``clean_*`` is for.
 """
 
 from django import forms
 from django.core.validators import RegexValidator
+from django.utils import timezone
 
-from .models import Order
+from products.forms import StyledModelForm
+
+from .models import DiscountCode, Order
 from .validators import validate_card_number, validate_expiry
 
 US_STATES = [
@@ -129,6 +138,52 @@ class CheckoutForm(forms.Form):
         return [self[name] for name in self.fields if name.startswith("card_")]
 
 
+class ApplyDiscountForm(forms.Form):
+    """The cart's discount box: one field, and a specific reason for every no.
+
+    ``clean_code`` returns the ``DiscountCode`` itself rather than the
+    string, so the view has nothing left to look up. Every rejection
+    names the code and says what is actually wrong with it — an expired
+    code never reaches the customer as a blank page or a bare "invalid".
+    """
+
+    code = forms.CharField(
+        label="Discount code",
+        max_length=20,
+        widget=forms.TextInput(
+            attrs={"class": "input join-item w-full", "placeholder": "Discount code"}
+        ),
+    )
+
+    def __init__(self, *args, cart=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cart = cart
+
+    def clean_code(self):
+        code = DiscountCode.objects.find(self.cleaned_data["code"])
+        if code is None:
+            raise forms.ValidationError("We don't have a code by that name.")
+
+        now = timezone.now()
+        if not code.is_active:
+            raise forms.ValidationError(f"{code.code} is no longer available.")
+        if code.starts_at and now < code.starts_at:
+            starts = timezone.localtime(code.starts_at).strftime("%B %-d")
+            raise forms.ValidationError(f"{code.code} doesn't start until {starts}.")
+        if code.ends_at and now >= code.ends_at:
+            ended = timezone.localtime(code.ends_at).strftime("%B %-d")
+            raise forms.ValidationError(f"{code.code} expired on {ended}.")
+
+        if self.cart is not None and code.discount_for(self.cart) <= 0:
+            if code.product:
+                raise forms.ValidationError(
+                    f"{code.code} applies to {code.product.name}, "
+                    "which isn't in your cart."
+                )
+            raise forms.ValidationError(f"{code.code} has nothing to discount yet.")
+        return code
+
+
 class OrderStatusForm(forms.ModelForm):
     """The back-office status dropdown — any of the four states, anytime.
 
@@ -140,3 +195,38 @@ class OrderStatusForm(forms.ModelForm):
         model = Order
         fields = ["status"]
         widgets = {"status": forms.Select(attrs={"class": "select"})}
+
+
+class DiscountCodeForm(StyledModelForm):
+    """The back-office create/edit form for a code.
+
+    ``is_active`` is deliberately absent: retiring is its own button on
+    the list, so editing a promotion's terms can never switch it off by
+    accident, and switching it off can never change its terms.
+    """
+
+    class Meta:
+        model = DiscountCode
+        fields = ["code", "kind", "value", "product", "starts_at", "ends_at"]
+        widgets = {
+            "starts_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
+            ),
+            "ends_at": forms.DateTimeInput(
+                attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
+            ),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["product"].empty_label = "The whole order"
+
+    def clean_code(self):
+        """Normalise before validation, not just before saving.
+
+        The model capitalises on save, but uniqueness is checked against
+        ``cleaned_data`` — so without this, ``spring50`` would sail past
+        the unique check next to an existing ``SPRING50`` and only fail
+        at the database. It also keeps the success message honest.
+        """
+        return DiscountCode.normalize(self.cleaned_data["code"])

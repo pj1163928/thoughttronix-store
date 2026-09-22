@@ -21,7 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
-from orders.models import Cart, Order, OrderItem
+from orders.models import Cart, DiscountCode, Order, OrderItem
 from products.models import Category, Product, Tag
 
 TAGS = [
@@ -496,6 +496,17 @@ SEED_ADDRESSES = [
 
 CARD_LAST4S = ["4242", "4111", "1881", "0005"]
 
+# Demo discount codes: (code, kind, value, product slug or None, days until
+# start or None, days until end or None). The expired one is the point of
+# the set — the "that code expired" path is demonstrable without waiting.
+DISCOUNT_CODES = [
+    ("THOUGHTS10", DiscountCode.Kind.PERCENT, Decimal("10"), None, None, 30),
+    ("SERAPHINE50", DiscountCode.Kind.PERCENT, Decimal("50"), "seraphine", None, 14),
+    ("MINDFUL20", DiscountCode.Kind.AMOUNT, Decimal("20.00"), None, None, None),
+    ("LASTQUARTER", DiscountCode.Kind.PERCENT, Decimal("25"), None, -60, -30),
+    ("PRESEASON", DiscountCode.Kind.PERCENT, Decimal("15"), None, 14, 45),
+]
+
 
 class Command(BaseCommand):
     help = "Wipe and rebuild the demo world: catalog, tags, and demo accounts."
@@ -506,6 +517,7 @@ class Command(BaseCommand):
         tags = self._create_tags()
         self._create_catalog(tags)
         self._create_users()
+        self._create_discount_codes()
         self._create_customer_cart()
         self._create_orders()
 
@@ -514,6 +526,7 @@ class Command(BaseCommand):
                 f"Seeded {Category.objects.count()} categories, "
                 f"{Tag.objects.count()} tags, "
                 f"{Product.objects.count()} products, "
+                f"{DiscountCode.objects.count()} discount codes, "
                 f"{get_user_model().objects.count()} users, "
                 f"{Order.objects.count()} orders, "
                 f"and a live cart for 'customer'."
@@ -524,6 +537,7 @@ class Command(BaseCommand):
         """Remove everything the seed owns; the rebuild starts from zero."""
         Order.objects.all().delete()
         Cart.objects.all().delete()
+        DiscountCode.objects.all().delete()
         Product.objects.all().delete()
         Tag.objects.all().delete()
         Category.objects.all().delete()
@@ -579,6 +593,19 @@ class Command(BaseCommand):
             )
             user.set_unusable_password()
             user.save()
+
+    def _create_discount_codes(self):
+        """One of each shape: order-wide, product-scoped, open-ended, expired, scheduled."""
+        now = timezone.now()
+        for code, kind, value, slug, starts_in, ends_in in DISCOUNT_CODES:
+            DiscountCode.objects.create(
+                code=code,
+                kind=kind,
+                value=value,
+                product=Product.objects.get(slug=slug) if slug else None,
+                starts_at=now + timedelta(days=starts_in) if starts_in else None,
+                ends_at=now + timedelta(days=ends_in) if ends_in else None,
+            )
 
     def _create_customer_cart(self):
         customer = get_user_model().objects.get(username="customer")

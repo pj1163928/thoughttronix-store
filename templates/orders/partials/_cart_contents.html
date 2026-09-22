@@ -53,11 +53,73 @@
     </table>
   </div>
 
-  <div class="mt-6 flex flex-wrap items-center justify-end gap-6">
-    <p class="text-xl font-semibold">
-      Total: <span class="text-primary">${{ cart.total|intcomma }}</span>
-    </p>
-    <a href="{% url 'orders:checkout' %}" class="btn btn-primary">Checkout</a>
+  <div class="mt-6 grid gap-6 lg:grid-cols-2">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h2 class="card-title text-base">Discount code</h2>
+
+        {% with code=cart.discount_code %}
+          {% if code %}
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p class="font-mono font-semibold">{{ code.code }}</p>
+                <p class="text-sm opacity-70">{{ code.label }}</p>
+              </div>
+              <button class="btn btn-ghost btn-xs text-error"
+                      hx-post="{% url 'orders:remove_discount' %}"
+                      hx-target="#cart-contents">Remove</button>
+            </div>
+
+            {% if not code.is_live %}
+              <p class="mt-2 text-sm text-warning">
+                This code is no longer valid, so it isn't being applied.
+              </p>
+            {% elif not cart.discount_amount %}
+              <p class="mt-2 text-sm text-warning">
+                {{ code.code }} only applies to {{ code.product.name }} — add it to
+                your cart to save {{ code.amount_label }}.
+              </p>
+            {% else %}
+              <p class="mt-2 text-sm text-success">
+                You're saving ${{ cart.discount_amount|intcomma }}.
+              </p>
+            {% endif %}
+            <div class="divider my-1"></div>
+          {% endif %}
+        {% endwith %}
+
+        <form hx-post="{% url 'orders:apply_discount' %}" hx-target="#cart-contents">
+          <div class="join w-full">
+            {{ discount_form.code }}
+            <button type="submit" class="btn btn-primary join-item">Apply</button>
+          </div>
+          {% for error in discount_form.code.errors %}
+            <p class="mt-2 text-sm text-error">{{ error }}</p>
+          {% endfor %}
+        </form>
+      </div>
+    </div>
+
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <p class="flex justify-between">
+          <span class="opacity-70">Subtotal</span>
+          <span>${{ cart.subtotal|intcomma }}</span>
+        </p>
+        {% if cart.discount_amount %}
+          <p class="flex justify-between text-success">
+            <span>Discount ({{ cart.discount_code.code }})</span>
+            <span>−${{ cart.discount_amount|intcomma }}</span>
+          </p>
+        {% endif %}
+        <div class="divider my-1"></div>
+        <p class="flex justify-between text-xl font-semibold">
+          <span>Total</span>
+          <span class="text-primary">${{ cart.total|intcomma }}</span>
+        </p>
+        <a href="{% url 'orders:checkout' %}" class="btn btn-primary mt-2">Checkout</a>
+      </div>
+    </div>
   </div>
 {% else %}
   <div class="py-16 text-center">

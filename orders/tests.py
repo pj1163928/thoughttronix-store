@@ -53,7 +53,7 @@ def test_line_total(cart_item):
     assert cart_item.line_total == Decimal("699.98")
 
 
-def test_cart_total_sums_all_lines(cart, cart_item, category):
+def test_cart_subtotal_sums_all_lines(cart, cart_item, category):
     other = Product.objects.create(
         name="Charging Pillow",
         slug="charging-pillow",
@@ -62,10 +62,15 @@ def test_cart_total_sums_all_lines(cart, cart_item, category):
     )
     cart.add(other)
 
-    assert cart.total() == Decimal("768.98")
+    assert cart.subtotal() == Decimal("768.98")
+
+
+def test_cart_total_matches_the_subtotal_without_a_code(cart, cart_item):
+    assert cart.total() == cart.subtotal() == Decimal("699.98")
 
 
 def test_empty_cart_total_is_zero(cart):
+    assert cart.subtotal() == Decimal("0.00")
     assert cart.total() == Decimal("0.00")
     assert cart.item_count() == 0
 

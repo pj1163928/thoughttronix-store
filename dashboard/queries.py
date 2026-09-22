@@ -1,9 +1,15 @@
 """Dashboard aggregations — the second of the codebase's two deep modules.
 
-The interface is the product: five functions that answer the questions
+The interface is the product: six functions that answer the questions
 leadership actually asks. Every one takes an optional ``since`` cutoff
 (``None`` means all time) and excludes cancelled orders — cancelled
 revenue is money the store never keeps.
+
+Two of these count money differently, deliberately. ``total_revenue``
+sums what was charged, after discounts. ``top_products`` sums line items
+at their purchase prices, before them. The gap between the two is
+``discounts_given``, so the three read together the way a P&L does:
+gross sales, less discounts, equals net revenue.
 """
 
 from datetime import date, datetime, timedelta
@@ -36,6 +42,15 @@ def total_revenue(since: datetime | None = None) -> Decimal:
 def order_count(since: datetime | None = None) -> int:
     """Number of orders placed at or after ``since``."""
     return _sold(since).count()
+
+
+def discounts_given(since: datetime | None = None) -> Decimal:
+    """Total taken off by discount codes on orders placed at or after ``since``.
+
+    Read from each order's frozen ``discount_amount``, not recomputed from
+    the codes — so retiring or editing a code never moves a past figure.
+    """
+    return _sold(since).aggregate(given=Sum("discount_amount"))["given"] or ZERO
 
 
 def average_order_value(since: datetime | None = None) -> Decimal:
@@ -82,12 +97,13 @@ def revenue_over_time(
 
 
 def top_products(since: datetime | None = None, *, limit: int = 5) -> list[dict]:
-    """The best-selling products by revenue, best first.
+    """The best-selling products by gross sales, best first.
 
     Grouped by the order lines' denormalized ``product_name``, so the
-    ranking reflects what was actually charged — later catalog edits and
-    deletions don't rewrite history. Each entry is ``{"product_name",
-    "revenue", "units"}``.
+    ranking reflects what was actually charged per line — later catalog
+    edits and deletions don't rewrite history. Order-level discounts are
+    not deducted here; see ``discounts_given``. Each entry is
+    ``{"product_name", "revenue", "units"}``.
     """
     items = OrderItem.objects.exclude(order__status=Order.Status.CANCELLED)
     if since is not None:

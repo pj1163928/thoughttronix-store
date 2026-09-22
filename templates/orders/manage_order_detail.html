@@ -78,6 +78,26 @@
           {{ status_form.status }}
           <button type="submit" class="btn btn-primary">Update</button>
         </form>
+        {% if order.discount_amount %}
+          <div class="mt-4">
+            <p class="flex justify-between text-sm">
+              <span class="opacity-70">Subtotal</span>
+              <span>${{ order.subtotal|intcomma }}</span>
+            </p>
+            <p class="flex justify-between text-sm text-success">
+              <span>
+                Discount
+                {% if order.discount_code_used %}
+                  <a href="{% url 'orders:manage_discount_update' order.discount_code_used.pk %}"
+                     class="link-hover font-mono">{{ order.discount_code }}</a>
+                {% else %}
+                  <span class="font-mono">{{ order.discount_code }}</span>
+                {% endif %}
+              </span>
+              <span>−${{ order.discount_amount|intcomma }}</span>
+            </p>
+          </div>
+        {% endif %}
         <div class="mt-4 text-right">
           <p class="text-sm uppercase tracking-wide opacity-60">Order total</p>
           <p class="text-2xl font-bold text-primary">${{ order.total|intcomma }}</p>

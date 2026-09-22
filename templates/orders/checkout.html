@@ -73,7 +73,17 @@
             {% endfor %}
           </ul>
           <div class="divider my-2"></div>
-          <p class="flex justify-between font-semibold">
+          <p class="flex justify-between text-sm">
+            <span class="opacity-70">Subtotal</span>
+            <span>${{ cart.subtotal|intcomma }}</span>
+          </p>
+          {% if cart.discount_amount %}
+            <p class="flex justify-between text-sm text-success">
+              <span>Discount ({{ cart.discount_code.code }})</span>
+              <span>−${{ cart.discount_amount|intcomma }}</span>
+            </p>
+          {% endif %}
+          <p class="mt-1 flex justify-between font-semibold">
             <span>Total</span>
             <span class="text-primary">${{ cart.total|intcomma }}</span>
           </p>

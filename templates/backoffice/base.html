@@ -20,6 +20,9 @@
        class="tab {% if section == 'orders' %}tab-active{% endif %}"
        href="{% url 'orders:manage_orders' %}">Orders</a>
     <a role="tab"
+       class="tab {% if section == 'discounts' %}tab-active{% endif %}"
+       href="{% url 'orders:manage_discounts' %}">Discounts</a>
+    <a role="tab"
        class="tab {% if section == 'dashboard' %}tab-active{% endif %}"
        href="{% url 'dashboard:index' %}">Dashboard</a>
   </div>

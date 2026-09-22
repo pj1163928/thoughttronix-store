@@ -6,7 +6,7 @@ from http import HTTPStatus
 import pytest
 from django.urls import reverse
 
-from .models import Order
+from .models import DiscountCode, Order
 from .services import place_order
 from .test_checkout_form import VALID_DATA
 
@@ -159,3 +159,139 @@ def test_an_unknown_status_is_rejected(client, staff_user, order):
 
     order.refresh_from_db()
     assert order.status == Order.Status.PLACED
+
+
+# --- Discount codes ---------------------------------------------------------
+
+
+def test_customers_cannot_reach_the_discount_pages(client, customer):
+    client.force_login(customer)
+
+    for name in ("orders:manage_discounts", "orders:manage_discount_create"):
+        assert client.get(reverse(name)).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_the_discount_list_has_an_empty_state(client, staff_user):
+    client.force_login(staff_user)
+
+    page = client.get(reverse("orders:manage_discounts")).content.decode()
+
+    assert "No discount codes yet" in page
+
+
+def test_staff_can_create_a_code(client, staff_user, product):
+    client.force_login(staff_user)
+
+    response = client.post(
+        reverse("orders:manage_discount_create"),
+        {
+            "code": "spring50",
+            "kind": DiscountCode.Kind.PERCENT,
+            "value": "50",
+            "product": product.pk,
+            "starts_at": "",
+            "ends_at": "",
+        },
+        follow=True,
+    )
+
+    code = DiscountCode.objects.get()
+    assert code.code == "SPRING50"
+    assert code.product == product
+    assert code.is_active
+    assert "SPRING50 created." in response.content.decode()
+
+
+def test_a_percentage_over_a_hundred_is_rejected(client, staff_user):
+    client.force_login(staff_user)
+
+    response = client.post(
+        reverse("orders:manage_discount_create"),
+        {"code": "TOOGOOD", "kind": DiscountCode.Kind.PERCENT, "value": "150"},
+    )
+
+    assert response.status_code == HTTPStatus.OK  # the form, re-rendered
+    assert not DiscountCode.objects.exists()
+    assert "A percentage can&#x27;t be more than 100." in response.content.decode()
+
+
+def test_a_window_that_ends_before_it_starts_is_rejected(client, staff_user):
+    client.force_login(staff_user)
+
+    response = client.post(
+        reverse("orders:manage_discount_create"),
+        {
+            "code": "BACKWARDS",
+            "kind": DiscountCode.Kind.PERCENT,
+            "value": "10",
+            "starts_at": "2026-10-01T00:00",
+            "ends_at": "2026-09-01T00:00",
+        },
+    )
+
+    assert not DiscountCode.objects.exists()
+    assert "The end must come after the start." in response.content.decode()
+
+
+def test_retiring_a_code_leaves_its_terms_alone(client, staff_user, percent_code):
+    client.force_login(staff_user)
+
+    response = client.post(
+        reverse("orders:manage_discount_toggle", kwargs={"pk": percent_code.pk}),
+        follow=True,
+    )
+
+    percent_code.refresh_from_db()
+    assert not percent_code.is_active
+    assert percent_code.value == Decimal("10")
+    assert "Past orders are unchanged" in response.content.decode()
+
+
+def test_a_retired_code_can_be_reactivated(client, staff_user, percent_code):
+    percent_code.is_active = False
+    percent_code.save()
+    client.force_login(staff_user)
+
+    client.post(
+        reverse("orders:manage_discount_toggle", kwargs={"pk": percent_code.pk})
+    )
+
+    percent_code.refresh_from_db()
+    assert percent_code.is_active
+
+
+def test_the_edit_form_cannot_switch_a_code_off(client, staff_user, percent_code):
+    """``is_active`` is not a field here — retiring is its own action."""
+    client.force_login(staff_user)
+
+    client.post(
+        reverse("orders:manage_discount_update", kwargs={"pk": percent_code.pk}),
+        {
+            "code": "THOUGHTS10",
+            "kind": DiscountCode.Kind.PERCENT,
+            "value": "15",
+            "is_active": "false",
+            "starts_at": "",
+            "ends_at": "",
+        },
+    )
+
+    percent_code.refresh_from_db()
+    assert percent_code.value == Decimal("15")
+    assert percent_code.is_active
+
+
+def test_a_duplicate_code_in_a_different_case_is_caught_by_the_form(
+    client, staff_user, percent_code
+):
+    """Normalisation happens before the unique check, not after it."""
+    client.force_login(staff_user)
+
+    response = client.post(
+        reverse("orders:manage_discount_create"),
+        {"code": "thoughts10", "kind": DiscountCode.Kind.PERCENT, "value": "5"},
+    )
+
+    assert response.status_code == HTTPStatus.OK
+    assert DiscountCode.objects.count() == 1
+    assert "already exists" in response.content.decode()

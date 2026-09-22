@@ -1,0 +1,89 @@
+{% extends "backoffice/base.html" %}
+{% load humanize %}
+
+{% block title %}Discounts — Back office{% endblock %}
+
+{% block backoffice %}
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
+    <h2 class="text-xl font-semibold">
+      {{ codes|length }} code{{ codes|length|pluralize }}
+    </h2>
+    <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm">
+      + Add code
+    </a>
+  </div>
+
+  {% if codes %}
+    <div class="overflow-x-auto rounded-box bg-base-100 shadow-md">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Discount</th>
+            <th>Runs</th>
+            <th>Status</th>
+            <th class="text-right">Used</th>
+            <th class="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for code in codes %}
+            <tr>
+              <td>
+                <a href="{% url 'orders:manage_discount_update' code.pk %}"
+                   class="link-hover font-mono font-semibold">{{ code.code }}</a>
+              </td>
+              <td>{{ code.label }}</td>
+              <td class="text-sm opacity-70">
+                {% if code.starts_at %}{{ code.starts_at|date:"M j, Y" }}{% else %}Always{% endif %}
+                &rarr;
+                {% if code.ends_at %}{{ code.ends_at|date:"M j, Y" }}{% else %}open-ended{% endif %}
+              </td>
+              <td>
+                {% if code.status == "live" %}
+                  <span class="badge badge-success badge-outline">Live</span>
+                {% elif code.status == "scheduled" %}
+                  <span class="badge badge-info badge-outline">Scheduled</span>
+                {% elif code.status == "expired" %}
+                  <span class="badge badge-ghost badge-outline">Expired</span>
+                {% else %}
+                  <span class="badge badge-warning badge-outline">Retired</span>
+                {% endif %}
+              </td>
+              <td class="text-right tabular-nums">{{ code.orders.count|intcomma }}</td>
+              <td class="text-right">
+                <a href="{% url 'orders:manage_discount_update' code.pk %}"
+                   class="btn btn-ghost btn-xs">Edit</a>
+                <form method="post"
+                      action="{% url 'orders:manage_discount_toggle' code.pk %}"
+                      class="inline">
+                  {% csrf_token %}
+                  {% if code.is_active %}
+                    <button type="submit" class="btn btn-ghost btn-xs text-warning">
+                      Retire
+                    </button>
+                  {% else %}
+                    <button type="submit" class="btn btn-ghost btn-xs">Reactivate</button>
+                  {% endif %}
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-4 text-sm italic opacity-60">
+      Codes are retired, never deleted — an order keeps whatever discount it was
+      given, whatever happens to the code afterwards.
+    </p>
+  {% else %}
+    <div class="py-16 text-center">
+      <p class="text-5xl">🎟️</p>
+      <p class="mt-4 text-xl font-semibold">No discount codes yet</p>
+      <p class="mt-2 opacity-70">Generosity has to start somewhere.</p>
+      <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm mt-6">
+        Create the first code
+      </a>
+    </div>
+  {% endif %}
+{% endblock %}

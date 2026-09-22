@@ -124,7 +124,85 @@ def test_a_failure_midway_leaves_no_partial_order(
     assert CartItem.objects.count() == 2
 
 
-def test_the_coupon_seam_is_accepted_and_ignored(cart, cart_item, checkout_data):
-    order = place_order(cart, cart.user, checkout_data, coupon_code="THOUGHTS10")
+def test_a_discount_is_applied_and_snapshotted(
+    cart, cart_item, percent_code, checkout_data
+):
+    cart.discount_code = percent_code
+    cart.save()
 
+    order = place_order(cart, cart.user, checkout_data)
+
+    assert order.subtotal == Decimal("699.98")
+    assert order.discount_amount == Decimal("70.00")
+    assert order.total == Decimal("629.98")
+    assert order.discount_code == "THOUGHTS10"
+    assert order.discount_code_used == percent_code
+
+
+def test_an_order_without_a_code_records_no_discount(cart, cart_item, checkout_data):
+    order = place_order(cart, cart.user, checkout_data)
+
+    assert order.discount_amount == Decimal("0.00")
+    assert order.discount_code == ""
+    assert order.discount_code_used is None
     assert order.total == Decimal("699.98")
+
+
+def test_the_code_is_released_with_the_cart(
+    cart, cart_item, percent_code, checkout_data
+):
+    cart.discount_code = percent_code
+    cart.save()
+
+    place_order(cart, cart.user, checkout_data)
+
+    cart.refresh_from_db()
+    assert cart.discount_code is None
+    assert cart.total() == Decimal("0.00")
+
+
+def test_a_code_that_expired_before_checkout_is_rejected(
+    cart, cart_item, expired_code, checkout_data
+):
+    cart.discount_code = expired_code
+    cart.save()
+
+    with pytest.raises(ValueError, match="LASTQUARTER"):
+        place_order(cart, cart.user, checkout_data)
+
+    assert not Order.objects.exists()
+    assert cart.items.count() == 1  # the cart is untouched
+
+
+def test_retiring_a_code_does_not_touch_the_orders_that_used_it(
+    cart, cart_item, percent_code, checkout_data
+):
+    """The headline guarantee: history is a snapshot, not a live view."""
+    cart.discount_code = percent_code
+    cart.save()
+    order = place_order(cart, cart.user, checkout_data)
+
+    percent_code.is_active = False
+    percent_code.value = Decimal("99")
+    percent_code.save()
+
+    order.refresh_from_db()
+    assert order.total == Decimal("629.98")
+    assert order.discount_amount == Decimal("70.00")
+    assert order.discount_code == "THOUGHTS10"
+
+
+def test_an_order_survives_its_code_being_deleted_outright(
+    cart, cart_item, percent_code, checkout_data
+):
+    cart.discount_code = percent_code
+    cart.save()
+    order = place_order(cart, cart.user, checkout_data)
+
+    percent_code.delete()
+
+    order.refresh_from_db()
+    assert order.discount_code_used is None
+    assert order.discount_code == "THOUGHTS10"
+    assert order.discount_amount == Decimal("70.00")
+    assert order.total == Decimal("629.98")
