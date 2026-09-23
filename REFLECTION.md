@@ -39,3 +39,38 @@ I made sure to be very specific with my directions, fortunately the AI was able 
 An unexpected result that actually was kind of nice was the addition of the badge on the staff page. This was likely done because I mentioned to have it included on all relevant locations.
 
 As far as my troubleshooting steps, I applied the same methodology as above.
+
+
+# Discount Codes
+
+## One Decision From Grill Me
+
+I deviated a total of 4 times throughout Claude's questioning; many of my changes likely could have been argued, but I felt that given what existed, it would make sense to go with these decisions over Claude's.
+
+Claude argued against my "kind + value" decision. I stated that it would make more sense if a percentage was applied to a given set of items or all of the items. Claude wanted to take an easier approach, which, in my opinion, would make it less flexible and potentially allow an exploit in how a person was to use a discount code.
+
+**My Decision:** Make a discount code apply to specific items and those items only, not the entire cart.
+
+**Claude's Decision:** Make a discount apply to all items that matched the item of the discount code. (Claude actually reversed this decision because it could essentially turn a $20 order of Seraphine into a $200 Seraphine order if they were to order 10 Seraphine.)
+
+---
+
+## Changes I Suggested
+
+I sort of went all out with changes, as I wanted to see what Claude was fully capable of, especially considering it wrote over 1,500 lines of new code.
+
+I suggested a variety of additions, such as usage limitations (making it so a user can use a code a certain amount of times or infinitely); before this, there was no usage limitation, meaning a user could use it as many times as they wanted.
+
+I also made it able to sort between active and inactive codes. Before, codes were all over the place; I figured there was no point in displaying inactive codes right away.
+
+I wanted discount codes to be highly customizable and suggested making it possible to select multiple items and apply the discount to those items if they were in a user's cart; before this, it was a single item or all items.
+
+Lastly, I wanted to limit the number of codes that were being made and prevent codes from being duplicated. If a duplicated code is created, it would flag it and allow the user to reinstate the code.
+
+Along with that, admins can choose to simply reinstate any discount code of their choosing and see how many times that code is used.
+
+Before this, any code could be created, which would be somewhat disorganized and harder to keep track of items that may be doing better because of sales and discounts.
+
+Claude made a few mistakes that were automatically caught in its testing; most of these were arithmetic errors or overwriting previous tests.
+
+Claude was able to use the changes to alter the code and the tests to work properly, making all tests succeed.
