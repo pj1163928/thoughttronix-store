@@ -6,11 +6,19 @@
 {% block backoffice %}
   <div class="mb-4 flex flex-wrap items-center justify-between gap-4">
     <h2 class="text-xl font-semibold">
-      {{ codes|length }} code{{ codes|length|pluralize }}
+      {{ codes|length }} {{ show }} code{{ codes|length|pluralize }}
     </h2>
-    <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm">
-      + Add code
-    </a>
+    <div class="flex flex-wrap items-center gap-2 text-sm">
+      {% for bucket in buckets %}
+        <a href="{% querystring show=bucket %}"
+           class="badge {% if show == bucket %}badge-primary{% else %}badge-ghost{% endif %}">
+          {{ bucket }}
+        </a>
+      {% endfor %}
+      <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm">
+        + Add code
+      </a>
+    </div>
   </div>
 
   {% if codes %}
@@ -50,7 +58,20 @@
                   <span class="badge badge-warning badge-outline">Retired</span>
                 {% endif %}
               </td>
-              <td class="text-right tabular-nums">{{ code.orders.count|intcomma }}</td>
+              <td class="text-right"
+                  title="Cancelled orders don't count — they give the use back.">
+                <span class="tabular-nums
+                             {% if code.total_limit and code.used >= code.total_limit %}text-warning{% endif %}">
+                  {{ code.used|intcomma }}{% if code.total_limit %} / {{ code.total_limit|intcomma }}{% endif %}
+                </span>
+                <span class="block text-xs opacity-60">
+                  {% if code.per_user_limit %}
+                    {{ code.per_user_limit }} per customer
+                  {% else %}
+                    unlimited per customer
+                  {% endif %}
+                </span>
+              </td>
               <td class="text-right">
                 <a href="{% url 'orders:manage_discount_update' code.pk %}"
                    class="btn btn-ghost btn-xs">Edit</a>
@@ -63,7 +84,7 @@
                       Retire
                     </button>
                   {% else %}
-                    <button type="submit" class="btn btn-ghost btn-xs">Reactivate</button>
+                    <button type="submit" class="btn btn-ghost btn-xs">Reinstate</button>
                   {% endif %}
                 </form>
               </td>
@@ -78,12 +99,35 @@
     </p>
   {% else %}
     <div class="py-16 text-center">
-      <p class="text-5xl">🎟️</p>
-      <p class="mt-4 text-xl font-semibold">No discount codes yet</p>
-      <p class="mt-2 opacity-70">Generosity has to start somewhere.</p>
-      <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm mt-6">
-        Create the first code
-      </a>
+      {% if not any_codes %}
+        <p class="text-5xl">🎟️</p>
+        <p class="mt-4 text-xl font-semibold">No discount codes yet</p>
+        <p class="mt-2 opacity-70">Generosity has to start somewhere.</p>
+        <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm mt-6">
+          Create the first code
+        </a>
+      {% elif show == "inactive" %}
+        <p class="text-5xl">🗃️</p>
+        <p class="mt-4 text-xl font-semibold">Nothing retired or expired</p>
+        <p class="mt-2 opacity-70">Every promotion you've run is still running.</p>
+        <a href="{% querystring show='active' %}" class="btn btn-primary btn-sm mt-6">
+          Back to active codes
+        </a>
+      {% else %}
+        <p class="text-5xl">💤</p>
+        <p class="mt-4 text-xl font-semibold">No active discount codes</p>
+        <p class="mt-2 opacity-70">
+          Every code you've made has been retired or has expired.
+        </p>
+        <div class="mt-6 flex justify-center gap-2">
+          <a href="{% url 'orders:manage_discount_create' %}" class="btn btn-primary btn-sm">
+            Create a code
+          </a>
+          <a href="{% querystring show='inactive' %}" class="btn btn-ghost btn-sm">
+            Reinstate an old one
+          </a>
+        </div>
+      {% endif %}
     </div>
   {% endif %}
 {% endblock %}

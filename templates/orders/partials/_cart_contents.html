@@ -70,13 +70,14 @@
                       hx-target="#cart-contents">Remove</button>
             </div>
 
-            {% if not code.is_live %}
+            {% if cart.discount_problem %}
               <p class="mt-2 text-sm text-warning">
-                This code is no longer valid, so it isn't being applied.
+                {{ cart.discount_problem }} It isn't being applied.
               </p>
             {% elif not cart.discount_amount %}
               <p class="mt-2 text-sm text-warning">
-                {{ code.code }} only applies to {{ code.product.name }} — add it to
+                {{ code.code }} only applies to {{ code.target_label }} — add
+                {% if code.covers_one_product %}it{% else %}something{% endif %} to
                 your cart to save {{ code.amount_label }}.
               </p>
             {% else %}

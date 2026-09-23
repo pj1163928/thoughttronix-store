@@ -15,9 +15,9 @@ own sentence for the customer. That is what ``clean_*`` is for.
 
 from django import forms
 from django.core.validators import RegexValidator
-from django.utils import timezone
 
 from products.forms import StyledModelForm
+from products.models import Product
 
 from .models import DiscountCode, Order
 from .validators import validate_card_number, validate_expiry
@@ -164,21 +164,19 @@ class ApplyDiscountForm(forms.Form):
         if code is None:
             raise forms.ValidationError("We don't have a code by that name.")
 
-        now = timezone.now()
-        if not code.is_active:
-            raise forms.ValidationError(f"{code.code} is no longer available.")
-        if code.starts_at and now < code.starts_at:
-            starts = timezone.localtime(code.starts_at).strftime("%B %-d")
-            raise forms.ValidationError(f"{code.code} doesn't start until {starts}.")
-        if code.ends_at and now >= code.ends_at:
-            ended = timezone.localtime(code.ends_at).strftime("%B %-d")
-            raise forms.ValidationError(f"{code.code} expired on {ended}.")
+        # Retired, not started, expired, fully claimed, already used by this
+        # customer — one method answers all five, and the cart, the checkout
+        # guard and the till all ask it rather than keeping their own copies.
+        problem = code.unusable_reason(self.cart.user if self.cart else None)
+        if problem:
+            raise forms.ValidationError(problem)
 
         if self.cart is not None and code.discount_for(self.cart) <= 0:
-            if code.product:
+            if code.applies_to == DiscountCode.Scope.SELECTED:
+                verb = "isn't" if code.covers_one_product else "aren't"
                 raise forms.ValidationError(
-                    f"{code.code} applies to {code.product.name}, "
-                    "which isn't in your cart."
+                    f"{code.code} applies to {code.target_label}, "
+                    f"which {verb} in your cart."
                 )
             raise forms.ValidationError(f"{code.code} has nothing to discount yet.")
         return code
@@ -203,12 +201,30 @@ class DiscountCodeForm(StyledModelForm):
     ``is_active`` is deliberately absent: retiring is its own button on
     the list, so editing a promotion's terms can never switch it off by
     accident, and switching it off can never change its terms.
+
+    With ``detect_duplicates`` on — which only the create view turns on —
+    a clash with an existing code is not an error but an offer. The form
+    records the clashing code in ``duplicate_of`` and stays otherwise
+    valid, so the view can show the admin what already exists and let
+    them reinstate it. Every *other* rule still runs, which means the
+    terms reaching that screen are known-good.
     """
 
     class Meta:
         model = DiscountCode
-        fields = ["code", "kind", "value", "product", "starts_at", "ends_at"]
+        fields = [
+            "code",
+            "kind",
+            "value",
+            "applies_to",
+            "products",
+            "per_user_limit",
+            "total_limit",
+            "starts_at",
+            "ends_at",
+        ]
         widgets = {
+            "products": forms.CheckboxSelectMultiple,
             "starts_at": forms.DateTimeInput(
                 attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"
             ),
@@ -217,9 +233,13 @@ class DiscountCodeForm(StyledModelForm):
             ),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, detect_duplicates=False, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["product"].empty_label = "The whole order"
+        self.detect_duplicates = detect_duplicates
+        self.duplicate_of = None
+        self.fields["products"].queryset = Product.objects.select_related("category")
+        self.fields["per_user_limit"].widget.attrs["placeholder"] = "Unlimited"
+        self.fields["total_limit"].widget.attrs["placeholder"] = "Unlimited"
 
     def clean_code(self):
         """Normalise before validation, not just before saving.
@@ -230,3 +250,38 @@ class DiscountCodeForm(StyledModelForm):
         at the database. It also keeps the success message honest.
         """
         return DiscountCode.normalize(self.cleaned_data["code"])
+
+    def clean(self):
+        """Keep ``applies_to`` and ``products`` telling the same story."""
+        data = super().clean()
+        if data.get("applies_to") == DiscountCode.Scope.ALL:
+            # Ticked boxes the admin then overrode with "the whole order"
+            # are dropped rather than stored, so the two fields can never
+            # disagree about what the code covers.
+            data["products"] = Product.objects.none()
+        elif not data.get("products"):
+            self.add_error(
+                "products",
+                "Pick at least one product, or let the code cover the whole order.",
+            )
+        return data
+
+    def validate_unique(self):
+        """Turn a clashing code into an offer instead of a dead end.
+
+        Django's own uniqueness check would stop at "already exists",
+        which tells the admin nothing about the code in their way and
+        gives them nowhere to go. Recording it here and skipping the
+        error lets the create view answer with the existing code, its
+        status, and — when it is retired or expired — a way to bring it
+        back. On the edit form this is off, and a clash is still an error.
+        """
+        code = self.cleaned_data.get("code")
+        if self.detect_duplicates and code:
+            clash = DiscountCode.objects.filter(code=code)
+            if self.instance.pk:
+                clash = clash.exclude(pk=self.instance.pk)
+            self.duplicate_of = clash.first()
+            if self.duplicate_of is not None:
+                return
+        super().validate_unique()

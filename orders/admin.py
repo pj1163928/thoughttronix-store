@@ -5,9 +5,19 @@ from .models import Cart, CartItem, DiscountCode, Order, OrderItem
 
 @admin.register(DiscountCode)
 class DiscountCodeAdmin(admin.ModelAdmin):
-    list_display = ("code", "label", "status", "starts_at", "ends_at")
-    list_filter = ("kind", "is_active")
+    list_display = (
+        "code",
+        "label",
+        "status",
+        "times_used",
+        "per_user_limit",
+        "total_limit",
+        "starts_at",
+        "ends_at",
+    )
+    list_filter = ("kind", "applies_to", "is_active")
     search_fields = ("code",)
+    filter_horizontal = ("products",)
 
 
 class CartItemInline(admin.TabularInline):

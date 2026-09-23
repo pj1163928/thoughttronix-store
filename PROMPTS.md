@@ -135,3 +135,68 @@ Each entry has this shape:
   (half of 2 × $349.99 is $349.99, not $350.00), and one assumed Django
   escapes literal template text. The implementation was right; the tests
   were wrong.
+
+## 2026-09-22 — Discount codes, part two: limits, scope, organisation, reinstatement
+
+### Prompts
+
+1. The `/grill-me` skill, given four changes in the user's own words:
+   usage limits (once per account by default, or a set number, or
+   unlimited); an active/inactive split on the discounts page with only
+   active codes shown by default; box-selection of several products per
+   code instead of one-or-all; and reinstatement of codes, with duplicate
+   entry prompting the creator rather than erroring.
+2. "Implement the changes."
+
+### Summary
+
+- **Outcome:** Sixteen questions, then the build. `DiscountCode` gained
+  `applies_to` + `products` (M2M, replacing the `product` FK),
+  `per_user_limit` (default 1), `total_limit` (default unlimited) and
+  `counting_since`. Migration `0004` adds the columns, copies the old FK
+  into the new set, and only then drops it — `SERAPHINE50` survived
+  intact. Uses are counted live from `Order.discount_code_used` via
+  `counted_orders`, with `with_usage()` as its SQL twin for the list
+  page. `unusable_reason(user)` is the single eligibility answer, called
+  from the cart box, `Cart.discount_amount`, `CheckoutView.dispatch` and
+  `place_order`. The back office gained `?show=active|inactive|all`, a
+  used/limit column, a scrollable product checkbox list, and a
+  reinstatement screen that adapts to the existing code's status. 275
+  tests pass (54 new), ruff clean.
+
+- **Where the grilling changed the design:** two places, both found by
+  reading rather than asking. First, "active" cannot mean `is_active` —
+  an expired code still has that flag set, so the obvious reading would
+  have left every dead promotion in the default view, which was the exact
+  complaint. Active became live-or-scheduled. Second, and more seriously,
+  question 7 settled on "an empty product set means the whole order", and
+  question 9 had to reopen it: the existing `on_delete=CASCADE` carried a
+  comment explaining that *"a code for a deleted product must not quietly
+  become a code for everything"*, an M2M has no `on_delete`, and staff can
+  delete products from the back office. The implicit spelling would have
+  turned 50%-off-Seraphine into 50% off the store. `applies_to` exists
+  because of that comment.
+
+- **Already built, contrary to the request:** reinstatement. The brief
+  asked to add it, but `ToggleDiscountActiveView` and a "Reactivate"
+  button were already there. The real gap was the duplicate path, which
+  dead-ended in Django's stock "already exists". That became the work.
+
+- **Deviations:** one recommendation overridden, deliberately. Cancelled
+  orders now *release* their use, against my advice — the user was told it
+  allows order-and-cancel farming of a one-per-account code and chose it
+  anyway. The exclusion sits in `counted_orders` alone, so reversing it is
+  one line. Also noted and accepted: "reinstate as-is" cannot revive an
+  expired code (flipping `is_active` can't outrun a past date), so that
+  button is withheld for expired codes rather than offered as a no-op.
+
+- **Sideways:** five tests failed on the first full run, all of them
+  pinned to the old shape — three constructing codes with `product=`, one
+  expecting the generic "no longer valid" where the guard now reports the
+  code's own reason, and one expecting the duplicate dead-end that was the
+  point of the change. All five were updated rather than worked around.
+  One template block was written badly first (the typed-terms summary
+  computed a label in markup, including a nonsense `yesno` filter) and was
+  replaced by a `typed_label` helper on the view, because `target_label`
+  reads the products relation and an unsaved instance has no primary key
+  to read it with.

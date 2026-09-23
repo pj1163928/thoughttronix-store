@@ -1,0 +1,133 @@
+{% extends "backoffice/base.html" %}
+{% load humanize %}
+
+{% block title %}{{ existing.code }} already exists — Back office{% endblock %}
+
+{% block backoffice %}
+  {# The admin tried to create a code whose name is taken. Rather than an  #}
+  {# error, they get the code that's in the way and a way through it. What #}
+  {# the buttons offer depends on the existing code's status: flipping     #}
+  {# is_active revives a retired code, but it cannot outrun a past date.   #}
+  <div class="card mx-auto max-w-3xl bg-base-100 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title">
+        <span class="font-mono">{{ existing.code }}</span> already exists
+      </h2>
+
+      {% if existing.status == "retired" %}
+        <p class="opacity-80">
+          You've run this code before and retired it. You can bring it back as it
+          was, or bring it back with the terms you just typed.
+        </p>
+      {% elif existing.status == "expired" %}
+        <p class="opacity-80">
+          You've run this code before and it expired on
+          {{ existing.ends_at|date:"F j, Y" }}. Switching it back on wouldn't help —
+          only new dates can revive it, so bringing it back means using the terms
+          you just typed.
+        </p>
+      {% else %}
+        <p class="opacity-80">
+          This code is {{ existing.status }} right now, so there's nothing to
+          reinstate. Edit it if you meant to change its terms, or go back and pick
+          a different name.
+        </p>
+      {% endif %}
+
+      <div class="mt-4 grid gap-4 md:grid-cols-2">
+        <div class="rounded-box border border-base-300 p-4">
+          <h3 class="font-semibold">The existing code</h3>
+          <dl class="mt-2 space-y-1 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Discount</dt><dd>{{ existing.label }}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Runs</dt>
+              <dd>
+                {% if existing.starts_at %}{{ existing.starts_at|date:"M j, Y" }}{% else %}Always{% endif %}
+                &rarr;
+                {% if existing.ends_at %}{{ existing.ends_at|date:"M j, Y" }}{% else %}open-ended{% endif %}
+              </dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Per customer</dt>
+              <dd>{% if existing.per_user_limit %}{{ existing.per_user_limit }}{% else %}Unlimited{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Total</dt>
+              <dd>{% if existing.total_limit %}{{ existing.total_limit|intcomma }}{% else %}Unlimited{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Used</dt>
+              <dd>{{ existing.times_used|intcomma }} time{{ existing.times_used|pluralize }}</dd>
+            </div>
+          </dl>
+        </div>
+
+        <div class="rounded-box border border-primary/40 p-4">
+          <h3 class="font-semibold">What you just typed</h3>
+          <dl class="mt-2 space-y-1 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Discount</dt><dd>{{ typed_label }}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Runs</dt>
+              <dd>
+                {% if form.cleaned_data.starts_at %}{{ form.cleaned_data.starts_at|date:"M j, Y" }}{% else %}Always{% endif %}
+                &rarr;
+                {% if form.cleaned_data.ends_at %}{{ form.cleaned_data.ends_at|date:"M j, Y" }}{% else %}open-ended{% endif %}
+              </dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Per customer</dt>
+              <dd>{% if form.cleaned_data.per_user_limit %}{{ form.cleaned_data.per_user_limit }}{% else %}Unlimited{% endif %}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="opacity-60">Total</dt>
+              <dd>{% if form.cleaned_data.total_limit %}{{ form.cleaned_data.total_limit|intcomma }}{% else %}Unlimited{% endif %}</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+
+      {% if existing.status == "retired" or existing.status == "expired" %}
+        <form method="post"
+              action="{% url 'orders:manage_discount_reinstate' existing.pk %}"
+              class="mt-6">
+          {% csrf_token %}
+          {% for name, value in submitted %}
+            <input type="hidden" name="{{ name }}" value="{{ value }}">
+          {% endfor %}
+
+          <label class="label cursor-pointer justify-start gap-3" for="reset-usage">
+            <input type="checkbox" name="reset_usage" id="reset-usage"
+                   class="toggle toggle-primary">
+            <span>
+              Start the usage count over
+              <span class="block text-xs opacity-60">
+                Past orders keep the discount they were given; they just stop
+                filling this code's limits.
+              </span>
+            </span>
+          </label>
+
+          <div class="mt-4 flex flex-wrap items-center justify-end gap-2">
+            <a href="{% url 'orders:manage_discounts' %}" class="btn btn-ghost">Cancel</a>
+            {% if existing.status == "retired" %}
+              <button type="submit" class="btn">Reinstate as it was</button>
+            {% endif %}
+            <button type="submit" name="apply_terms" value="1" class="btn btn-primary">
+              Reinstate with my new terms
+            </button>
+          </div>
+        </form>
+      {% else %}
+        <div class="mt-6 flex items-center justify-end gap-2">
+          <a href="{% url 'orders:manage_discounts' %}" class="btn btn-ghost">Cancel</a>
+          <a href="{% url 'orders:manage_discount_update' existing.pk %}"
+             class="btn btn-primary">Edit {{ existing.code }}</a>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

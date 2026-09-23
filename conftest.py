@@ -90,29 +90,38 @@ def cart_item(cart, product):
 
 @pytest.fixture
 def percent_code(db):
-    """10% off the whole order, open-ended."""
+    """10% off the whole order, open-ended, no limits."""
     return DiscountCode.objects.create(
-        code="THOUGHTS10", kind=DiscountCode.Kind.PERCENT, value=Decimal("10")
+        code="THOUGHTS10",
+        kind=DiscountCode.Kind.PERCENT,
+        value=Decimal("10"),
+        per_user_limit=None,
     )
 
 
 @pytest.fixture
 def amount_code(db):
-    """$20 off the whole order, open-ended."""
+    """$20 off the whole order, open-ended, no limits."""
     return DiscountCode.objects.create(
-        code="MINDFUL20", kind=DiscountCode.Kind.AMOUNT, value=Decimal("20.00")
+        code="MINDFUL20",
+        kind=DiscountCode.Kind.AMOUNT,
+        value=Decimal("20.00"),
+        per_user_limit=None,
     )
 
 
 @pytest.fixture
 def product_code(product):
     """50% off Seraphine only — the worked example from the design."""
-    return DiscountCode.objects.create(
+    code = DiscountCode.objects.create(
         code="SERAPHINE50",
         kind=DiscountCode.Kind.PERCENT,
         value=Decimal("50"),
-        product=product,
+        applies_to=DiscountCode.Scope.SELECTED,
+        per_user_limit=None,
     )
+    code.products.add(product)
+    return code
 
 
 @pytest.fixture
@@ -123,4 +132,13 @@ def expired_code(db):
         kind=DiscountCode.Kind.PERCENT,
         value=Decimal("25"),
         ends_at=timezone.now() - timedelta(days=1),
+        per_user_limit=None,
+    )
+
+
+@pytest.fixture
+def once_per_customer_code(db):
+    """The default shape of a new code: one use per account, no overall cap."""
+    return DiscountCode.objects.create(
+        code="ONCEONLY", kind=DiscountCode.Kind.PERCENT, value=Decimal("10")
     )

@@ -12,6 +12,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views import View
 from django.views.generic import (
     CreateView,
@@ -166,14 +167,11 @@ class CheckoutView(LoginRequiredMixin, FormView):
                 "Remove them from the cart to check out.",
             )
             return redirect("orders:cart")
-        code = cart.discount_code
-        if code is not None and not code.is_live():
+        problem = cart.discount_problem()
+        if problem:
             cart.discount_code = None
             cart.save(update_fields=["discount_code"])
-            messages.warning(
-                request,
-                f"{code.code} is no longer valid, so it's been removed from your cart.",
-            )
+            messages.warning(request, f"{problem} It's been removed from your cart.")
             return redirect("orders:cart")
         return super().dispatch(request, *args, **kwargs)
 
@@ -283,23 +281,110 @@ class UpdateOrderStatusView(StaffRequiredMixin, View):
 
 
 class ManageDiscountListView(StaffRequiredMixin, ListView):
-    """Every code ever created, live or not — codes are retired, not deleted."""
+    """Codes grouped by whether they still have a future.
+
+    Codes are retired, never deleted, so this page would otherwise
+    accumulate every promotion the store has ever run. ``?show=`` picks
+    a bucket the same way ``?status=`` does on the orders list; active
+    is the default, so landing here shows only what is still in play.
+    """
 
     template_name = "orders/manage_discounts.html"
     context_object_name = "codes"
     extra_context = {"section": "discounts"}
+    buckets = ["active", "inactive", "all"]
+
+    @property
+    def show(self):
+        requested = self.request.GET.get("show", "")
+        return requested if requested in self.buckets else "active"
 
     def get_queryset(self):
-        return DiscountCode.objects.select_related("product")
+        codes = DiscountCode.objects.with_usage().prefetch_related("products")
+        if self.show == "all":
+            return codes
+        if self.show == "inactive":
+            return codes.inactive()
+        return codes.active()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["show"] = self.show
+        context["buckets"] = self.buckets
+        # Tells the empty state whether this bucket is empty or the store
+        # has simply never had a code — two very different pages.
+        context["any_codes"] = DiscountCode.objects.exists()
+        return context
 
 
 class ManageDiscountCreateView(StaffRequiredMixin, SuccessMessageMixin, CreateView):
+    """Create a code — or, if that name is taken, offer the one in the way.
+
+    The form is told to record a name clash rather than reject it, so a
+    duplicate arrives here as a valid form carrying ``duplicate_of``.
+    Everything the admin typed is handed to the confirmation screen as
+    hidden fields, which keeps the whole exchange stateless: no session
+    to expire, nothing to clean up, and two browser tabs cannot confuse
+    each other.
+    """
+
     model = DiscountCode
     form_class = DiscountCodeForm
     template_name = "orders/manage_discount_form.html"
     success_url = reverse_lazy("orders:manage_discounts")
     success_message = "%(code)s created."
     extra_context = {"section": "discounts"}
+
+    def get_form_kwargs(self):
+        return super().get_form_kwargs() | {"detect_duplicates": True}
+
+    def form_valid(self, form):
+        if form.duplicate_of is not None:
+            return self.render_duplicate(form)
+        return super().form_valid(form)
+
+    def render_duplicate(self, form):
+        """Answer a name clash with the existing code and what can be done about it."""
+        return render(
+            self.request,
+            "orders/manage_discount_reinstate.html",
+            {
+                "section": "discounts",
+                "existing": form.duplicate_of,
+                "form": form,
+                "typed_label": self.typed_label(form),
+                "submitted": self.submitted_fields(),
+            },
+        )
+
+    @staticmethod
+    def typed_label(form):
+        """The typed terms in the same words as ``DiscountCode.label``.
+
+        Built from ``cleaned_data`` rather than the unsaved instance:
+        ``target_label`` reads the products relation, which an object
+        with no primary key cannot answer for.
+        """
+        code = form.instance
+        if form.cleaned_data.get("applies_to") == DiscountCode.Scope.ALL:
+            return f"{code.amount_label} off your order"
+        names = [product.name for product in form.cleaned_data.get("products", [])]
+        return f"{code.amount_label} off {', '.join(names)}"
+
+    def submitted_fields(self):
+        """The POST as name/value pairs, ready to re-emit as hidden inputs.
+
+        ``getlist`` rather than plain lookup because the product
+        checkboxes send one value per tick, and a set of products that
+        silently collapsed to its first member would be a nasty way to
+        lose a promotion's terms.
+        """
+        return [
+            (name, value)
+            for name in self.request.POST
+            if name != "csrfmiddlewaretoken"
+            for value in self.request.POST.getlist(name)
+        ]
 
 
 class ManageDiscountUpdateView(StaffRequiredMixin, SuccessMessageMixin, UpdateView):
@@ -329,5 +414,63 @@ class ToggleDiscountActiveView(StaffRequiredMixin, View):
         else:
             messages.success(
                 request, f"{code.code} is retired. Past orders are unchanged."
+            )
+        return redirect("orders:manage_discounts")
+
+
+class ReinstateDiscountView(StaffRequiredMixin, View):
+    """POST-only: bring an existing code back, with or without new terms.
+
+    Reached only from the duplicate screen, where an admin tried to
+    create a code whose name is already taken. Two buttons post here.
+    ``apply_terms`` carries everything they typed and saves it over the
+    existing code; without it, the code comes back exactly as it was and
+    only ``is_active`` moves — the separation ``ToggleDiscountActiveView``
+    insists on, preserved by making the admin choose which they meant.
+
+    Reinstating never rewrites an order. ``reset_usage`` moves
+    ``counting_since`` instead, which changes what counts towards the
+    limits from here on and leaves every past order's frozen discount
+    exactly where it is.
+    """
+
+    def post(self, request, pk):
+        code = get_object_or_404(DiscountCode, pk=pk)
+        apply_terms = "apply_terms" in request.POST
+
+        if not apply_terms and code.is_active:
+            # Nothing to switch back on. Saying so beats reporting a
+            # success that changed nothing.
+            messages.info(request, f"{code.code} is already {code.status}.")
+            return redirect("orders:manage_discount_update", pk=code.pk)
+
+        if apply_terms:
+            form = DiscountCodeForm(request.POST, instance=code)
+            if not form.is_valid():
+                messages.error(
+                    request,
+                    f"{code.code} wasn't changed — those terms didn't validate.",
+                )
+                return redirect("orders:manage_discount_update", pk=code.pk)
+            code = form.save()
+
+        code.is_active = True
+        if "reset_usage" in request.POST:
+            code.counting_since = timezone.now()
+        code.save(update_fields=["is_active", "counting_since"])
+
+        terms = " with your new terms" if apply_terms else ""
+        counting = (
+            " Its usage count starts over." if "reset_usage" in request.POST else ""
+        )
+        if code.status in {"live", "scheduled"}:
+            messages.success(request, f"{code.code} is back{terms}.{counting}")
+        else:
+            # Chiefly the expired case: switching is_active on cannot
+            # outrun a date that has already passed.
+            messages.warning(
+                request,
+                f"{code.code} was saved{terms}, but it's still {code.status} — "
+                "check its dates.",
             )
         return redirect("orders:manage_discounts")

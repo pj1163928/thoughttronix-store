@@ -101,8 +101,9 @@ def test_a_fixed_amount_comes_off_once_however_many_are_bought(cart, product):
         code="TWENTY",
         kind=DiscountCode.Kind.AMOUNT,
         value=Decimal("20.00"),
-        product=product,
+        applies_to=DiscountCode.Scope.SELECTED,
     )
+    code.products.add(product)
 
     assert cart.subtotal() == Decimal("1049.97")
     assert code.discount_for(cart) == Decimal("20.00")
@@ -349,7 +350,8 @@ def test_checkout_bounces_a_cart_whose_code_expired(
     response = signed_in.get(reverse("orders:checkout"), follow=True)
 
     assert response.redirect_chain[-1][0] == reverse("orders:cart")
-    assert "LASTQUARTER is no longer valid" in response.content.decode()
+    # The guard reports the code's own reason, not a generic "invalid".
+    assert "LASTQUARTER expired on" in response.content.decode()
     cart.refresh_from_db()
     assert cart.discount_code is None
 

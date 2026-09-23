@@ -22,6 +22,10 @@ class StyledModelForm(forms.ModelForm):
             widget = field.widget
             if isinstance(widget, forms.CheckboxInput):
                 widget.attrs["class"] = "toggle toggle-primary"
+            elif isinstance(widget, forms.CheckboxSelectMultiple):
+                # The boxes are styled individually; the scrolling frame
+                # around them belongs to the template, not the widget.
+                widget.attrs["class"] = "checkbox checkbox-sm checkbox-primary"
             elif isinstance(widget, forms.Textarea):
                 widget.attrs["class"] = "textarea w-full"
                 widget.attrs.setdefault("rows", 6)

@@ -32,6 +32,38 @@ class DiscountCodeQuerySet(models.QuerySet):
             .filter(models.Q(ends_at__isnull=True) | models.Q(ends_at__gt=at))
         )
 
+    def active(self, at=None):
+        """Codes with a future: live now, or scheduled to start.
+
+        Deliberately wider than ``live`` and deliberately narrower than
+        ``is_active``. A code that has not started yet still belongs in
+        the back office's default view — it is a promotion someone is
+        waiting on. An expired one does not, even though its ``is_active``
+        flag is still ``True``: nothing will ever make it work again.
+        """
+        at = at or timezone.now()
+        return self.filter(is_active=True).filter(
+            models.Q(ends_at__isnull=True) | models.Q(ends_at__gt=at)
+        )
+
+    def inactive(self, at=None):
+        """The exact complement of ``active``: retired codes and expired ones."""
+        at = at or timezone.now()
+        return self.filter(models.Q(is_active=False) | models.Q(ends_at__lte=at))
+
+    def with_usage(self):
+        """Annotate ``used`` — the redemptions counting against the limits.
+
+        The same two rules ``DiscountCode.counted_orders`` applies, in SQL:
+        cancelled orders release their use, and a code whose count was
+        reset on reinstatement only counts orders placed since.
+        """
+        counted = ~models.Q(orders__status=Order.Status.CANCELLED) & (
+            models.Q(counting_since__isnull=True)
+            | models.Q(orders__created_at__gte=models.F("counting_since"))
+        )
+        return self.annotate(used=models.Count("orders", filter=counted, distinct=True))
+
     def find(self, raw):
         """Look up a code as the customer typed it; ``None`` if there is no such code."""
         normalized = DiscountCode.normalize(raw)
@@ -43,11 +75,23 @@ class DiscountCodeQuerySet(models.QuerySet):
 class DiscountCode(models.Model):
     """A promotional code that lowers an order's total.
 
-    A code discounts either the whole order or a single product's line —
-    ``product`` is null for the former. The two kinds differ in how they
-    treat quantity, deliberately: a percentage is proportional, so it
-    scales with the units bought, while a fixed amount means what it
-    says and comes off once, capped at what it is discounting.
+    A code discounts either the whole order or a chosen set of products —
+    ``applies_to`` says which, and ``products`` holds the set. The two
+    kinds differ in how they treat quantity, deliberately: a percentage
+    is proportional, so it scales with the units bought, while a fixed
+    amount means what it says and comes off once, capped at what it is
+    discounting.
+
+    The scope is an explicit field rather than "empty means everything"
+    for one reason: staff can delete products. A ``SELECTED`` code whose
+    last product is deleted discounts *nothing*, which is a promotion
+    that quietly stops working — where the implicit spelling would have
+    turned it into a discount on the entire store instead.
+
+    ``per_user_limit`` and ``total_limit`` cap redemptions; ``None``
+    means no cap. Uses are counted from the orders themselves rather
+    than a running total, so the number can never drift from reality —
+    see ``counted_orders`` for the two rules that shape that count.
 
     Codes are never deleted. ``is_active`` retires one, and neither
     retiring nor editing a code touches an order that already used it —
@@ -57,6 +101,10 @@ class DiscountCode(models.Model):
     class Kind(models.TextChoices):
         PERCENT = "PERCENT", "Percent off"
         AMOUNT = "AMOUNT", "Amount off"
+
+    class Scope(models.TextChoices):
+        ALL = "ALL", "The whole order"
+        SELECTED = "SELECTED", "Only the products I choose"
 
     code = models.CharField(
         max_length=20,
@@ -71,16 +119,33 @@ class DiscountCode(models.Model):
         validators=[MinValueValidator(CENT)],
         help_text="A percentage for “Percent off”, dollars for “Amount off”.",
     )
-    # CASCADE, not SET_NULL: a code for a deleted product must not quietly
-    # become a code for everything. Orders keep their snapshot regardless.
-    product = models.ForeignKey(
+    applies_to = models.CharField(
+        max_length=8,
+        choices=Scope.choices,
+        default=Scope.ALL,
+        help_text="Whether the discount covers everything in the cart or a chosen few.",
+    )
+    products = models.ManyToManyField(
         Product,
-        on_delete=models.CASCADE,
-        null=True,
         blank=True,
         related_name="discount_codes",
-        help_text="Leave blank to discount the whole order.",
+        help_text="Only used when the discount covers chosen products.",
     )
+    per_user_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        default=1,
+        help_text="How many times one customer may use it. Blank means unlimited.",
+    )
+    total_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="How many times it may be used across all customers. "
+        "Blank means unlimited.",
+    )
+    # Set when staff reinstate a code and choose to start its count over.
+    # The orders are untouched; only what counts towards the limits moves.
+    counting_since = models.DateTimeField(null=True, blank=True, editable=False)
     starts_at = models.DateTimeField(
         null=True, blank=True, help_text="Blank means it is live immediately."
     )
@@ -143,6 +208,63 @@ class DiscountCode(models.Model):
             return "expired"
         return "live"
 
+    def counted_orders(self):
+        """The orders that count against this code's limits.
+
+        Two rules, both deliberate. A cancelled order releases its use —
+        the customer never received the goods, so they get their
+        redemption back. And when staff reinstate a code and reset its
+        count, ``counting_since`` draws a line: earlier orders keep their
+        frozen discount but no longer occupy a slot in the new run.
+        """
+        orders = self.orders.exclude(status=Order.Status.CANCELLED)
+        if self.counting_since:
+            orders = orders.filter(created_at__gte=self.counting_since)
+        return orders
+
+    def times_used(self):
+        """How many redemptions count against ``total_limit``."""
+        return self.counted_orders().count()
+
+    def times_used_by(self, user):
+        """How many of this customer's redemptions count against ``per_user_limit``."""
+        if user is None or not user.is_authenticated:
+            return 0
+        return self.counted_orders().filter(user=user).count()
+
+    def unusable_reason(self, user=None, at=None):
+        """Why this code cannot be used, as a sentence for the customer — or ``None``.
+
+        The single answer to "may this cart have this discount?", called
+        from the cart box, from the cart's own total, from the checkout
+        guard and from ``place_order``. Every rejection names the code and
+        says what is actually wrong with it, so no caller has to invent
+        wording of its own — or, worse, its own copy of the rules.
+
+        ``user`` may be omitted when only the code's own state matters;
+        the per-customer limit is then skipped.
+        """
+        at = at or timezone.now()
+        if not self.is_active:
+            return f"{self.code} is no longer available."
+        if self.starts_at and at < self.starts_at:
+            starts = timezone.localtime(self.starts_at).strftime("%B %-d")
+            return f"{self.code} doesn't start until {starts}."
+        if self.ends_at and at >= self.ends_at:
+            ended = timezone.localtime(self.ends_at).strftime("%B %-d")
+            return f"{self.code} expired on {ended}."
+        if self.total_limit is not None and self.times_used() >= self.total_limit:
+            return f"{self.code} has been fully claimed."
+        if user is not None and self.per_user_limit is not None:
+            if self.times_used_by(user) >= self.per_user_limit:
+                if self.per_user_limit == 1:
+                    return f"You've already used {self.code}."
+                return (
+                    f"You've already used {self.code} "
+                    f"{self.per_user_limit} times, which is the limit."
+                )
+        return None
+
     @property
     def amount_label(self):
         """The size of the discount, e.g. ``50%`` or ``$20.00``."""
@@ -151,24 +273,50 @@ class DiscountCode(models.Model):
         return f"${self.value}"
 
     @property
+    def target_label(self):
+        """What the code covers, in words: “your order”, “Seraphine and Halo”.
+
+        Names up to two products and counts the rest, so the phrase stays
+        a phrase whether the code covers one product or twenty-five. It
+        reads inside a table cell, a cart note and a form error alike.
+        """
+        if self.applies_to == self.Scope.ALL:
+            return "your order"
+        names = list(self.products.values_list("name", flat=True))
+        if not names:
+            return "no products"
+        if len(names) == 1:
+            return names[0]
+        if len(names) == 2:
+            return f"{names[0]} and {names[1]}"
+        return f"{names[0]}, {names[1]} and {len(names) - 2} more"
+
+    @property
+    def covers_one_product(self):
+        """Whether ``target_label`` reads as a singular — the template's grammar."""
+        return self.applies_to == self.Scope.SELECTED and self.products.count() == 1
+
+    @property
     def label(self):
         """What the code does, in words: “50% off Seraphine”."""
-        target = self.product.name if self.product else "your order"
-        return f"{self.amount_label} off {target}"
+        return f"{self.amount_label} off {self.target_label}"
+
+    def covered_lines(self, cart):
+        """The cart lines this code applies to — all of them, or the chosen ones."""
+        if self.applies_to == self.Scope.ALL:
+            return list(cart.lines())
+        covered = set(self.products.values_list("pk", flat=True))
+        return [line for line in cart.lines() if line.product_id in covered]
 
     def discount_for(self, cart):
         """How much this code takes off ``cart`` — never more than it discounts.
 
         Returns ``0.00`` when nothing in the cart matches, so a code for a
-        product the customer has since removed simply stops discounting
-        instead of erroring.
+        product the customer has since removed — or one whose products
+        have all been deleted from the catalog — simply stops discounting
+        instead of erroring or widening to the whole order.
         """
-        lines = [
-            line
-            for line in cart.lines()
-            if self.product_id is None or line.product_id == self.product_id
-        ]
-        base = sum((line.line_total for line in lines), ZERO)
+        base = sum((line.line_total for line in self.covered_lines(cart)), ZERO)
         if base <= ZERO:
             return ZERO
         if self.kind == self.Kind.PERCENT:
@@ -219,15 +367,28 @@ class Cart(models.Model):
         """The cart's contents at list price, before any discount."""
         return sum((item.line_total for item in self.lines()), ZERO)
 
+    def discount_problem(self):
+        """Why the attached code isn't discounting, as a sentence — or ``None``.
+
+        The cart page's warning line, and the reason ``discount_amount``
+        returns zero. Kept as its own method because a template cannot
+        call ``unusable_reason`` with an argument.
+        """
+        code = self.discount_code
+        if code is None:
+            return None
+        return code.unusable_reason(self.user)
+
     def discount_amount(self):
         """What the applied code takes off, or zero if there isn't a usable one.
 
-        Liveness is re-checked on every read: a code applied yesterday may
-        have expired overnight, and the cart must never show a discount it
-        would not actually get.
+        Eligibility is re-checked on every read: a code applied yesterday
+        may have expired overnight, and one applied this morning may have
+        been claimed by someone else since. The cart must never show a
+        discount it would not actually get.
         """
         code = self.discount_code
-        if code is None or not code.is_live():
+        if code is None or self.discount_problem():
             return ZERO
         return code.discount_for(self)
 

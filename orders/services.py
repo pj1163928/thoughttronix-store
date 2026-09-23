@@ -46,15 +46,19 @@ def place_order(
 
     A discount code applied to the cart is re-checked here rather than
     trusted: this is the last moment before money is decided, and a code
-    can expire between the cart page and this call. What it took off is
-    frozen onto the order, so retiring or editing that code afterwards
-    leaves this order exactly as it was placed.
+    can expire — or be claimed by another customer, or hit this
+    customer's own limit — between the cart page and this call. What it
+    took off is frozen onto the order, so retiring or editing that code
+    afterwards leaves this order exactly as it was placed.
 
     All-or-nothing: runs in a transaction, so a failure partway through
-    leaves no partial order and the cart intact.
+    leaves no partial order and the cart intact. That transaction is
+    what makes the usage limits mean anything: the count is read and the
+    order written inside it, so two customers racing for the last use of
+    a code cannot both win.
 
     Raises ``ValueError`` if the cart is empty, holds a product that is
-    no longer available, or carries a code that is no longer live.
+    no longer available, or carries a code this customer cannot use.
     """
     lines = list(cart.lines())
     if not lines:
@@ -67,10 +71,10 @@ def place_order(
         )
 
     code = cart.discount_code
-    if code is not None and not code.is_live():
-        raise ValueError(
-            f"{code.code} is no longer valid. Remove it from your cart to check out."
-        )
+    if code is not None:
+        problem = code.unusable_reason(user)
+        if problem:
+            raise ValueError(f"{problem} Remove it from your cart to check out.")
     discount = code.discount_for(cart) if code else ZERO
 
     card_digits = checkout_data["card_number"].replace(" ", "").replace("-", "")

@@ -496,15 +496,70 @@ SEED_ADDRESSES = [
 
 CARD_LAST4S = ["4242", "4111", "1881", "0005"]
 
-# Demo discount codes: (code, kind, value, product slug or None, days until
-# start or None, days until end or None). The expired one is the point of
-# the set — the "that code expired" path is demonstrable without waiting.
+# Demo discount codes, one per shape the feature can take. Each entry is a
+# dict so the optional keys can stay absent rather than pad every row with
+# None. ``products`` names slugs and implies the SELECTED scope; ``starts_in``
+# and ``ends_in`` are days from now, negative for the past.
+#
+# The set is chosen so every path is demonstrable without waiting or
+# shopping: LASTQUARTER is already expired, PRESEASON has not started,
+# WELCOMEBACK is retired and waiting for the reinstate button, SLEEPWELL25
+# covers several products at once, and FIRSTFIFTY has a total cap small
+# enough to run out.
 DISCOUNT_CODES = [
-    ("THOUGHTS10", DiscountCode.Kind.PERCENT, Decimal("10"), None, None, 30),
-    ("SERAPHINE50", DiscountCode.Kind.PERCENT, Decimal("50"), "seraphine", None, 14),
-    ("MINDFUL20", DiscountCode.Kind.AMOUNT, Decimal("20.00"), None, None, None),
-    ("LASTQUARTER", DiscountCode.Kind.PERCENT, Decimal("25"), None, -60, -30),
-    ("PRESEASON", DiscountCode.Kind.PERCENT, Decimal("15"), None, 14, 45),
+    {
+        "code": "THOUGHTS10",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("10"),
+        "ends_in": 30,
+        "per_user_limit": None,
+    },
+    {
+        "code": "SERAPHINE50",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("50"),
+        "products": ["seraphine"],
+        "ends_in": 14,
+    },
+    {
+        "code": "SLEEPWELL25",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("25"),
+        "products": ["dreamweaver", "hush", "whisper-alarm-clock", "calm-collar"],
+        "ends_in": 60,
+    },
+    {
+        "code": "MINDFUL20",
+        "kind": DiscountCode.Kind.AMOUNT,
+        "value": Decimal("20.00"),
+        "per_user_limit": None,
+    },
+    {
+        "code": "FIRSTFIFTY",
+        "kind": DiscountCode.Kind.AMOUNT,
+        "value": Decimal("50.00"),
+        "total_limit": 50,
+    },
+    {
+        "code": "LASTQUARTER",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("25"),
+        "starts_in": -60,
+        "ends_in": -30,
+    },
+    {
+        "code": "PRESEASON",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("15"),
+        "starts_in": 14,
+        "ends_in": 45,
+    },
+    {
+        "code": "WELCOMEBACK",
+        "kind": DiscountCode.Kind.PERCENT,
+        "value": Decimal("20"),
+        "is_active": False,
+    },
 ]
 
 
@@ -595,17 +650,23 @@ class Command(BaseCommand):
             user.save()
 
     def _create_discount_codes(self):
-        """One of each shape: order-wide, product-scoped, open-ended, expired, scheduled."""
+        """One of each shape the feature can take — see ``DISCOUNT_CODES``."""
         now = timezone.now()
-        for code, kind, value, slug, starts_in, ends_in in DISCOUNT_CODES:
-            DiscountCode.objects.create(
-                code=code,
-                kind=kind,
-                value=value,
-                product=Product.objects.get(slug=slug) if slug else None,
+        for entry in DISCOUNT_CODES:
+            spec = dict(entry)
+            slugs = spec.pop("products", [])
+            starts_in = spec.pop("starts_in", None)
+            ends_in = spec.pop("ends_in", None)
+            code = DiscountCode.objects.create(
+                **spec,
+                applies_to=(
+                    DiscountCode.Scope.SELECTED if slugs else DiscountCode.Scope.ALL
+                ),
                 starts_at=now + timedelta(days=starts_in) if starts_in else None,
                 ends_at=now + timedelta(days=ends_in) if ends_in else None,
             )
+            if slugs:
+                code.products.set(Product.objects.filter(slug__in=slugs))
 
     def _create_customer_cart(self):
         customer = get_user_model().objects.get(username="customer")

@@ -188,7 +188,10 @@ def test_staff_can_create_a_code(client, staff_user, product):
             "code": "spring50",
             "kind": DiscountCode.Kind.PERCENT,
             "value": "50",
-            "product": product.pk,
+            "applies_to": DiscountCode.Scope.SELECTED,
+            "products": [product.pk],
+            "per_user_limit": "1",
+            "total_limit": "",
             "starts_at": "",
             "ends_at": "",
         },
@@ -197,7 +200,7 @@ def test_staff_can_create_a_code(client, staff_user, product):
 
     code = DiscountCode.objects.get()
     assert code.code == "SPRING50"
-    assert code.product == product
+    assert list(code.products.all()) == [product]
     assert code.is_active
     assert "SPRING50 created." in response.content.decode()
 
@@ -270,6 +273,9 @@ def test_the_edit_form_cannot_switch_a_code_off(client, staff_user, percent_code
             "code": "THOUGHTS10",
             "kind": DiscountCode.Kind.PERCENT,
             "value": "15",
+            "applies_to": DiscountCode.Scope.ALL,
+            "per_user_limit": "",
+            "total_limit": "",
             "is_active": "false",
             "starts_at": "",
             "ends_at": "",
@@ -281,7 +287,7 @@ def test_the_edit_form_cannot_switch_a_code_off(client, staff_user, percent_code
     assert percent_code.is_active
 
 
-def test_a_duplicate_code_in_a_different_case_is_caught_by_the_form(
+def test_a_duplicate_code_in_a_different_case_is_caught(
     client, staff_user, percent_code
 ):
     """Normalisation happens before the unique check, not after it."""
@@ -289,7 +295,12 @@ def test_a_duplicate_code_in_a_different_case_is_caught_by_the_form(
 
     response = client.post(
         reverse("orders:manage_discount_create"),
-        {"code": "thoughts10", "kind": DiscountCode.Kind.PERCENT, "value": "5"},
+        {
+            "code": "thoughts10",
+            "kind": DiscountCode.Kind.PERCENT,
+            "value": "5",
+            "applies_to": DiscountCode.Scope.ALL,
+        },
     )
 
     assert response.status_code == HTTPStatus.OK

@@ -72,4 +72,9 @@ urlpatterns = [
         views.ToggleDiscountActiveView.as_view(),
         name="manage_discount_toggle",
     ),
+    path(
+        "backoffice/discounts/<int:pk>/reinstate/",
+        views.ReinstateDiscountView.as_view(),
+        name="manage_discount_reinstate",
+    ),
 ]
