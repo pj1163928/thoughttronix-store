@@ -30,6 +30,124 @@ Each entry has this shape:
 
 ---
 
+## 2026-09-22 — Discount codes: the design interview, the build, and the review
+
+*Session ran 21–22 September and is logged on the 22nd. This is the session
+that created the discount feature; the other 2026-09-22 entry further down is
+the separate follow-up session that added usage limits, multi-product scope
+and reinstatement on top of it.*
+
+### Prompts
+
+1. The `/grill-me` skill, given the feature in the user's own words: "I would
+   like you to lead me to develop a discount code feature. This feature allows
+   a customer to type a code at the checkout, with that discount code the order
+   total would subsequently drop. Here are some requirements of this feature:
+   codes must expire when the promotion ends, customers who type expired codes
+   should see a message saying that the code is expired without breaking the
+   page or the underlying code. Codes must be able to be created and retired.
+   If a code is retired that code must not change any order that has already
+   used it. The code written should be free from errors redirects to blank
+   pages or the customers wrongfully contacting legal. The extent of the
+   discount codes must apply to both wide orders(multiple items) or singular
+   items. An example of this would be making a discount code for 50% off
+   Seraphine for a given date."
+2. "Implement this feature"
+3. "Ok now that the changes have been made how cn I manually review and test
+   the changes to make sure there are no bugs or issus with the code"
+4. "can you explain this deviation that I made in more depth", quoting the
+   **Where the user overrode the recommendation** bullet from the interim log
+   entry (the IDE selection of PROMPTS.md lines 114–121).
+5. The session-log prompt from the top of this file.
+
+### Summary
+
+- **Outcome:** Sixteen questions, one at a time, each naming the part of the
+  design it settled and recommending an option; then the build. Everything the
+  codebase could answer was read rather than asked — the dormant `coupon_code`
+  seam, `OrderItem`'s denormalisation precedent, `Product.is_available` as the
+  retire pattern, the six call sites of `cart.total()`, and the existing
+  `UpdateOrderStatusView` shape.
+
+  `DiscountCode` landed in `orders` with `code`, `kind`, `value`, a nullable
+  `product` FK, `starts_at`/`ends_at` and `is_active`; rules on the model
+  (`is_live`, `status`, `label`, `discount_for`) and its queryset (`live`,
+  `find`). `Cart` gained the FK, and its old `total()` became `subtotal()` so
+  that `total()` could mean the amount due — which made `place_order` and all
+  three templates discount-aware without editing them. `Order` froze the code's
+  name, the dollars taken off, and a `SET_NULL` link. Apply and remove run over
+  HTMX on the cart page; `CheckoutView.dispatch` re-checks before card entry
+  and `place_order` re-checks inside the transaction. The back office gained a
+  fifth tab with list/create/edit and retirement as its own POST action, and
+  the dashboard gained `discounts_given()` plus a fourth tile, with Top
+  products relabelled "by gross sales". 221 tests passing, ruff clean, five
+  demo codes in the seed covering live, scheduled and expired. The
+  `coupon_code` parameter was removed and the PRD and plan amended to record
+  how the seam actually landed.
+
+  Prompts 3 and 4 changed no code. Prompt 3 produced a manual review script
+  with exact expected figures against the seeded world ($616.00 subtotal;
+  `THOUGHTS10` → $554.40, `MINDFUL20` → $596.00, `SERAPHINE50` → $367.00) and
+  named three things verified in tests but not in a browser: the
+  `datetime-local` prefill when editing an existing code, the apply form after
+  an HTMX swap, and that `TIME_ZONE = "UTC"` makes entered dates read as UTC
+  rather than Central. Prompt 4 was an explanation of the two overridden
+  recommendations, grounded in the code as it stood after the follow-up
+  session had already grown it.
+
+  *Note for future readers:* this entry describes the feature as built in this
+  session. `is_live`/`status` and the single `product` FK have since been
+  replaced by `unusable_reason` and `applies_to` + `products` — see the
+  2026-09-22 part-two entry below.
+
+- **Deviations:** two of the sixteen recommendations were overridden, and both
+  changed the design.
+
+  `kind` + `value` instead of percent-only forced a question percent alone
+  never raises — what "$20 off Seraphine" means when three are in the cart. It
+  was settled as $20, once, capped at the line total, so the worst case stays
+  bounded by the number the merchant typed. The asymmetry with percent (which
+  does scale with quantity) is deliberate and is asserted directly by
+  `test_a_fixed_amount_comes_off_once_however_many_are_bought`.
+
+  Applying on the **cart page** rather than at checkout opened a real
+  time-of-check/time-of-use gap: a code can stop being valid between applying
+  and paying. Validation became four call sites over one implementation — the
+  apply form, the cart's own total, the checkout guard, and `place_order`. The
+  user was told the second check was non-negotiable before agreeing.
+
+  Two follow-up questions were asked after the build: how to manually review
+  and test the changes, and a request to explain those two deviations in more
+  depth.
+
+- **Sideways:** four tests failed on the first full run. Two were arithmetic
+  errors of mine (half of 2 × $349.99 is $349.99, not $350.00) and one assumed
+  Django escapes literal template text — in all three the implementation was
+  right and the test was wrong. The fourth was a real defect: the back office's
+  success message printed the code as typed rather than as stored, and behind
+  it sat a worse problem — `ModelForm` checked uniqueness against the
+  un-normalised string, so `spring50` would have passed validation beside an
+  existing `SPRING50` and then failed at the database. Normalising in
+  `clean_code` fixed both, with a regression test for the duplicate case.
+
+  Ruff caught two further things: an import-order violation (auto-fixed) and
+  DJ012, the Django style guide's method ordering, which wanted `save` above
+  the `normalize` staticmethod.
+
+  Found while reading rather than while building: `CheckoutView.form_valid`
+  called `place_order` with no `try`/`except`, so its `ValueError` would have
+  rendered a Django 500 — the blank page the brief asked to design against,
+  already latent in the code before this feature existed. Fixed here.
+
+  Two process notes. Manually exercising the flow through `manage.py shell`
+  hit `DisallowedHost: testserver`, since `ALLOWED_HOSTS` is only relaxed under
+  pytest; worked around at runtime, not a defect. And the interim log entry
+  written mid-session was appended at the bottom of this file in a freeform
+  shape, following CLAUDE.md's "append entries" without reading this file's own
+  header, which asks for newest-first and a fixed shape. It has been folded
+  into this entry rather than left as a malformed duplicate; no fact it
+  recorded was dropped.
+
 ## 2026-09-15 — `Product.is_featured` and the Featured badge
 
 ### Prompts
@@ -93,48 +211,6 @@ Each entry has this shape:
   re-running the full suite. The two catalog/back-office badge tests count
   `">Featured<"` occurrences rather than testing mere presence, so they
   catch both a missing badge and one leaking onto every card.
-
-## Discount codes — `/grill-me`, then implementation (2026-09-21)
-
-- **Prompt:** the `/grill-me` skill, given the feature in the user's own
-  words: a code typed at checkout that drops the order total; codes that
-  expire when the promotion ends; an expired code showing a message
-  without breaking the page; codes that can be created and retired, where
-  retiring changes nothing about orders that already used them; and codes
-  that work for a whole order or for a single item ("50% off Seraphine for
-  a given date").
-
-- **Method:** sixteen questions, one at a time, each naming the part of
-  the design it settled and recommending an option. Everything the
-  codebase could answer was read rather than asked — the dormant
-  `coupon_code` seam, `OrderItem`'s denormalisation precedent,
-  `Product.is_available` as the retire pattern, the six call sites of
-  `cart.total()`, and the existing `UpdateOrderStatusView` shape.
-
-- **Where the user overrode the recommendation:** twice, and both changed
-  the design. `kind` + `value` instead of percent-only forced a decision
-  about what "$20 off Seraphine" means when three are in the cart (it
-  means $20, once). Applying on the **cart page** instead of at checkout
-  opened a real gap — a code can expire between applying and paying — so
-  validation became two call sites over one implementation, plus a
-  `dispatch` check and a transactional backstop.
-
-- **Found while reading, not while building:** `CheckoutView.form_valid`
-  called `place_order` with no `try`/`except`, so its `ValueError` would
-  have rendered a Django 500 — the "blank page" the user asked to design
-  against, already latent in the code. Fixed here.
-
-- **Found by a failing test:** the back office's success message printed
-  the code as typed, not as stored. The real defect behind it was that
-  `ModelForm` checked uniqueness against the un-normalised string, so
-  `spring50` would pass validation beside an existing `SPRING50` and then
-  fail at the database. Normalising in `clean_code` fixed both; there is a
-  regression test for the duplicate case.
-
-- **Corrected:** two of my own test expectations were arithmetic errors
-  (half of 2 × $349.99 is $349.99, not $350.00), and one assumed Django
-  escapes literal template text. The implementation was right; the tests
-  were wrong.
 
 ## 2026-09-22 — Discount codes, part two: limits, scope, organisation, reinstatement
 
