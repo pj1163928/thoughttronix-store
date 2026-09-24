@@ -276,3 +276,62 @@ and reinstatement on top of it.*
   replaced by a `typed_label` helper on the view, because `target_label`
   reads the products relation and an unsaved instance has no primary key
   to read it with.
+
+## 2026-09-22 — Saved shipping and billing addresses
+
+### Prompts
+
+1. The `/grill-me` skill, given one sentence: "Customers should be able
+   to save shipping and billing addresses to their account and reuse
+   them at checkout."
+2. "Implement the feature."
+
+### Summary
+
+- **Outcome:** Seventeen questions, then the build. `accounts.Address`
+  holds role-free rows — a role is something an *order* has, assigned at
+  checkout — with an optional `label`, two default flags, and a
+  conditional `UniqueConstraint` per role. `make_default` is the only
+  thing that moves a default; `AddressQuerySet.remember` is the
+  write-back. Checkout pre-fills from the defaults and swaps a chosen
+  address into its existing fields over HTMX via
+  `CheckoutAddressFieldsView`. `US_STATES` and `zip_validator` moved from
+  `orders/forms.py` into `accounts`, since the app that owns addresses
+  should own the address vocabulary. 315 tests pass (43 new), ruff clean,
+  seed idempotent.
+
+- **What the interview bought:** the feature adds nothing to the order
+  pipeline. `Order`, `OrderItem`, `place_order` and `ADDRESS_FIELDS` are
+  untouched, and `CheckoutForm` keeps its twelve required fields and its
+  zero `clean()` methods. Three options were rejected specifically to
+  preserve that: replacing the checkout fields with `ModelChoiceField`s,
+  giving `Order` an address FK, and adding "billing same as shipping"
+  (which would have needed conditionally-required fields). The form
+  docstring calling itself "the codebase's showcase of declarative
+  validation" did more design work than any answer I gave.
+
+- **Where reading the code beat asking:** the discount feature's
+  `discount_code_used` FK looked like the obvious precedent for linking
+  orders to addresses. It isn't — that FK is load-bearing for usage
+  limits, `dashboard/queries.py` has no address query at all, and codes
+  are never deleted while addresses will be. A mostly-null FK with no
+  reader would have invited queries that quietly under-count. Choosing
+  `accounts` for the model also surfaced two import problems that only a
+  grep found: `zip_validator` living in `orders`, and `StyledModelForm`
+  living in `products`, which already imports `accounts.mixins` —
+  inheriting it would have made two apps import each other. `AddressForm`
+  styles its own widgets instead.
+
+- **A gap the plan had:** the defaults invariant ("a customer with
+  addresses always has a default") was settled for creation and deletion
+  but not for *unticking* a checkbox, which would have left a customer
+  with two addresses and nothing pre-selected. The box is rendered
+  disabled on the address that holds the role, so `make_default` needs no
+  clearing branch and the invariant holds by construction rather than by
+  repair.
+
+- **Scope held three times:** a navbar user-menu dropdown, a project-wide
+  address partial, and "billing same as shipping" were all declined as
+  separate commits with their own justifications. The dual-default design
+  already pre-fills both sections identically for the one-address
+  customer, which is who "same as shipping" would have served.

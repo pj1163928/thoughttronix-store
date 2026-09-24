@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if form.instance.pk %}Edit address{% else %}Add an address{% endif %} — The ThoughtTronix Store
+{% endblock %}
+
+{% block content %}
+  <h1 class="text-3xl font-bold">
+    {% if form.instance.pk %}Edit address{% else %}Add an address{% endif %}
+  </h1>
+
+  <form method="post" class="mt-6 max-w-2xl space-y-6">
+    {% csrf_token %}
+
+    {% for error in form.non_field_errors %}
+      <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+    {% endfor %}
+
+    <section class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <div class="grid gap-4 sm:grid-cols-2">
+          {% for field in form.address_fields %}
+            {% include "orders/partials/_field.html" %}
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h2 class="card-title">Use this address by default</h2>
+        <div class="mt-2 space-y-3">
+          {% for field in form.default_fields %}
+            <div>
+              <label class="flex items-center gap-3" for="{{ field.id_for_label }}">
+                {{ field }}
+                <span>{{ field.label }}</span>
+              </label>
+              {% if field.help_text %}
+                <p class="mt-1 ml-9 text-sm opacity-60">{{ field.help_text }}</p>
+              {% endif %}
+              {% for error in field.errors %}
+                <p class="mt-1 text-sm text-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-end gap-2">
+      <a href="{% url 'accounts:addresses' %}" class="btn btn-ghost">Cancel</a>
+      <button type="submit" class="btn btn-primary">Save address</button>
+    </div>
+  </form>
+{% endblock %}

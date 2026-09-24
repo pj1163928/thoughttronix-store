@@ -11,6 +11,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
+from accounts.models import Address
 from orders.models import Cart, CartItem, DiscountCode
 from products.models import Category, Product, Tag
 
@@ -86,6 +87,37 @@ def cart(customer):
 @pytest.fixture
 def cart_item(cart, product):
     return CartItem.objects.create(cart=cart, product=product, quantity=2)
+
+
+@pytest.fixture
+def address(customer):
+    """Casey's home address — her first, so the default for both roles."""
+    saved = Address.objects.create(
+        user=customer,
+        label="Home",
+        name="Casey Monroe",
+        street="214 Synapse Street",
+        city="Canyon",
+        state="TX",
+        zip="79015",
+    )
+    saved.make_default(shipping=True, billing=True)
+    return saved
+
+
+@pytest.fixture
+def second_address(customer, address):
+    """A second address, newer than ``address`` and default for nothing."""
+    return Address.objects.create(
+        user=customer,
+        label="Work",
+        name="Casey Monroe",
+        street="77 Cortex Lane",
+        line2="Suite 300",
+        city="Amarillo",
+        state="TX",
+        zip="79101",
+    )
 
 
 @pytest.fixture

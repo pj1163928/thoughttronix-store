@@ -10,6 +10,7 @@ validate the form, hand everything to ``place_order``.
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
+from django.http import Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -24,11 +25,22 @@ from django.views.generic import (
 )
 
 from accounts.mixins import StaffRequiredMixin
+from accounts.models import ADDRESS_FIELDS, Address
 from products.models import Product
 
 from .forms import ApplyDiscountForm, CheckoutForm, DiscountCodeForm, OrderStatusForm
 from .models import Cart, CartItem, DiscountCode, Order
 from .services import place_order
+
+
+def address_initial(address, prefix):
+    """A saved address as ``CheckoutForm`` initial data for one section.
+
+    Checkout's field names are the address's own behind a ``shipping_``
+    or ``billing_`` prefix, so the whole mapping is a prefix and a
+    ``getattr`` — the reason ``Address.zip`` is spelled that way.
+    """
+    return {f"{prefix}{field}": getattr(address, field) for field in ADDRESS_FIELDS}
 
 
 class CartView(LoginRequiredMixin, TemplateView):
@@ -175,9 +187,36 @@ class CheckoutView(LoginRequiredMixin, FormView):
             return redirect("orders:cart")
         return super().dispatch(request, *args, **kwargs)
 
+    def get_initial(self):
+        """Pre-fill each section from the customer's default address.
+
+        The invariant the address book maintains — a customer with any
+        addresses has exactly one default per role — is what makes this
+        a lookup rather than a guess. With an empty book there is
+        nothing to fill, so the save-checkboxes are ticked instead: the
+        customer is typing an address they have never saved, and the
+        offer to keep it is the only moment asking is cheap.
+        """
+        initial = super().get_initial()
+        addresses = list(self.request.user.addresses.all())
+        if not addresses:
+            initial["save_shipping_address"] = True
+            initial["save_billing_address"] = True
+            return initial
+
+        for prefix, flag in (
+            ("shipping_", "is_default_shipping"),
+            ("billing_", "is_default_billing"),
+        ):
+            default = next((a for a in addresses if getattr(a, flag)), None)
+            if default is not None:
+                initial |= address_initial(default, prefix)
+        return initial
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["cart"] = Cart.for_user(self.request.user)
+        context["addresses"] = self.request.user.addresses.all()
         return context
 
     def form_valid(self, form):
@@ -189,8 +228,53 @@ class CheckoutView(LoginRequiredMixin, FormView):
             # but a race at the till still deserves a sentence, not a 500.
             messages.warning(self.request, str(problem))
             return redirect("orders:cart")
+
+        # Deliberately after the order and outside its transaction:
+        # remembering an address must never be able to undo a purchase.
+        for prefix in ("shipping_", "billing_"):
+            if form.cleaned_data.get(f"save_{prefix}address"):
+                Address.objects.remember(self.request.user, form.cleaned_data, prefix)
+
         messages.success(self.request, f"Order {order.number} placed. Thank you!")
         return redirect(reverse("orders:confirmation", kwargs={"pk": order.pk}))
+
+
+class CheckoutAddressFieldsView(LoginRequiredMixin, View):
+    """HTMX: re-render one checkout address fieldset from a saved address.
+
+    The picker is a typist and nothing more. It swaps values into the
+    fields the customer would otherwise have typed, which is why
+    ``CheckoutForm`` needs no saved-address field of its own and
+    ``place_order`` needs no changes at all — what arrives at the till
+    is the same POST either way. Editing a swapped-in value changes that
+    order only; the saved address is never read back at submit time.
+
+    The empty choice clears the fieldset, so "enter a new address" is
+    the picker's own job rather than a separate control. Addresses are
+    fetched through ``request.user``, never by bare pk.
+
+    The picker's ``<select name="address">`` is what htmx sends here as
+    the query string. It sits inside the checkout form, so a submitted
+    checkout carries a stray ``address`` key — harmless, because
+    ``CheckoutForm`` has no such field and ignores it.
+    """
+
+    def get(self, request, role):
+        if role not in ("shipping", "billing"):
+            raise Http404("No such address section.")
+
+        chosen = request.GET.get("address", "")
+        prefix = f"{role}_"
+        initial = {}
+        if chosen.isdigit():
+            address = get_object_or_404(request.user.addresses, pk=chosen)
+            initial = address_initial(address, prefix)
+
+        form = CheckoutForm(initial=initial)
+        fields = getattr(form, f"{role}_fields")()
+        return render(
+            request, "orders/partials/_address_fields.html", {"fields": fields}
+        )
 
 
 class OwnOrdersMixin(LoginRequiredMixin):

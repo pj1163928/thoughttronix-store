@@ -21,6 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
+from accounts.models import Address
 from orders.models import Cart, DiscountCode, Order, OrderItem
 from products.models import Category, Product, Tag
 
@@ -496,6 +497,17 @@ SEED_ADDRESSES = [
 
 CARD_LAST4S = ["4242", "4111", "1881", "0005"]
 
+# The 'customer' demo login starts with a populated address book, because
+# the checkout picker shows nothing until there are at least two saved
+# addresses to choose between. The empty-book path — the designed empty
+# state and the pre-ticked "save this address" box — is two deletes away.
+# The first entry becomes the default for both roles.
+CUSTOMER_ADDRESSES = [
+    ("Home", "214 Synapse Street", "", "Canyon", "TX", "79015"),
+    ("Work", "77 Cortex Lane", "Suite 300", "Amarillo", "TX", "79101"),
+    ("Mom's", "1500 Dendrite Drive", "", "Albuquerque", "NM", "87102"),
+]
+
 # Demo discount codes, one per shape the feature can take. Each entry is a
 # dict so the optional keys can stay absent rather than pad every row with
 # None. ``products`` names slugs and implies the SELECTED scope; ``starts_in``
@@ -572,6 +584,7 @@ class Command(BaseCommand):
         tags = self._create_tags()
         self._create_catalog(tags)
         self._create_users()
+        self._create_addresses()
         self._create_discount_codes()
         self._create_customer_cart()
         self._create_orders()
@@ -584,6 +597,7 @@ class Command(BaseCommand):
                 f"{DiscountCode.objects.count()} discount codes, "
                 f"{get_user_model().objects.count()} users, "
                 f"{Order.objects.count()} orders, "
+                f"{Address.objects.count()} saved addresses, "
                 f"and a live cart for 'customer'."
             )
         )
@@ -667,6 +681,35 @@ class Command(BaseCommand):
             )
             if slugs:
                 code.products.set(Product.objects.filter(slug__in=slugs))
+
+    def _create_addresses(self):
+        """Casey Monroe's address book, newest first so “Home” leads the list.
+
+        Nothing extra is needed to keep this idempotent: ``_wipe``
+        deletes the managed users, and addresses cascade with their
+        owner.
+        """
+        customer = get_user_model().objects.get(username="customer")
+        name = f"{customer.first_name} {customer.last_name}"
+        now = timezone.now()
+        saved = []
+        for months, (label, street, line2, city, state, zip_code) in enumerate(
+            CUSTOMER_ADDRESSES
+        ):
+            saved.append(
+                Address.objects.create(
+                    user=customer,
+                    label=label,
+                    name=name,
+                    street=street,
+                    line2=line2,
+                    city=city,
+                    state=state,
+                    zip=zip_code,
+                    created_at=now - timedelta(days=30 * months),
+                )
+            )
+        saved[0].make_default(shipping=True, billing=True)
 
     def _create_customer_cart(self):
         customer = get_user_model().objects.get(username="customer")

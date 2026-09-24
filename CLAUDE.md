@@ -19,6 +19,9 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 - `accounts/` — custom user model (`accounts.User`, `AbstractUser` + nullable
   `job_title`). Roles are Django's own vocabulary: customers are plain users,
   employees are `is_staff`, the admin is `is_superuser`. No role field, no Groups.
+  Also owns `Address` — a customer's saved address book and its CRUD — along
+  with the address vocabulary (`US_STATES`, `ADDRESS_FIELDS`, `zip_validator`)
+  that `orders` imports for checkout.
 - `products/` — catalog (`Category`, `Product`, `Tag`), its back-office CRUD,
   and the `seed` command
 - `orders/` — cart, checkout, orders, discount codes, and the back-office
@@ -59,6 +62,19 @@ means live or scheduled. Typing a code that already exists is answered
 with the existing code and a way to reinstate it, not a unique-constraint
 error — `DiscountCodeForm.validate_unique` records the clash instead of
 rejecting it, and only the create view turns that on.
+
+Saved addresses live in `accounts`: `Address` rows are role-free, and a
+role is assigned at checkout, never stored on the address. No order
+points at one — `Order` keeps its own flat copy — so deleting an address
+can never damage history. Two invariants hold by construction: a
+customer with at least one address has exactly one default per role, and
+`make_default` is the only thing that moves one (the box that would
+clear a default is rendered disabled rather than offered). Checkout
+pre-fills from the defaults and swaps a chosen address into the fields
+over HTMX, so `CheckoutForm` keeps its twelve required fields and
+`place_order` is untouched. `Address.objects.remember` writes back after
+the order is placed, outside its transaction, and declines to duplicate
+an address the customer already has.
 
 Idiomatic Django throughout: class-based views, model methods, custom
 managers/querysets, forms own their validation. Settings read from `.env`

@@ -1,0 +1,7 @@
+{# One saved address, rendered as a block. Expects ``address``. #}
+<address class="text-sm not-italic opacity-80">
+  {{ address.name }}<br>
+  {{ address.street }}<br>
+  {% if address.line2 %}{{ address.line2 }}<br>{% endif %}
+  {{ address.city }}, {{ address.state }} {{ address.zip }}
+</address>

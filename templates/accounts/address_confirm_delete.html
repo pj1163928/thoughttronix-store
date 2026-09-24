@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Delete address — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="card mx-auto max-w-lg bg-base-100 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title">Delete &ldquo;{{ address.display_name }}&rdquo;?</h2>
+      {% include "accounts/partials/_address.html" %}
+      <p class="mt-2 opacity-70">
+        This removes the address from your account permanently. Past orders keep
+        their own copy of where they were sent.
+        {% if address.default_for %}
+          Another saved address will become your default {{ address.default_for }}.
+        {% endif %}
+      </p>
+      <form method="post" class="mt-4 flex justify-end gap-2">
+        {% csrf_token %}
+        <a href="{% url 'accounts:addresses' %}" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-error">Delete address</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

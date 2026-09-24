@@ -1,10 +1,12 @@
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.urls import reverse_lazy
-from django.views.generic import CreateView
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
-from .forms import SignInForm, SignupForm
+from .forms import AddressForm, SignInForm, SignupForm
+from .models import Address
 
 
 class SignupView(SuccessMessageMixin, CreateView):
@@ -32,3 +34,52 @@ class SignOutView(LogoutView):
         response = super().post(request, *args, **kwargs)
         messages.info(request, "You have signed out.")
         return response
+
+
+# --- The address book -------------------------------------------------------
+#
+# A customer's saved addresses, reusable at checkout. Thin views over
+# ``Address`` and ``AddressForm``; every default and every promotion is
+# decided on the model.
+
+
+class OwnAddressesMixin(LoginRequiredMixin):
+    """Addresses are always fetched through the owner — never by bare pk."""
+
+    model = Address
+    success_url = reverse_lazy("accounts:addresses")
+
+    def get_queryset(self):
+        return Address.objects.filter(user=self.request.user)
+
+
+class AddressListView(OwnAddressesMixin, ListView):
+    template_name = "accounts/address_list.html"
+    context_object_name = "addresses"
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("label")
+
+
+class AddressCreateView(OwnAddressesMixin, SuccessMessageMixin, CreateView):
+    form_class = AddressForm
+    template_name = "accounts/address_form.html"
+    success_message = "Address saved."
+
+    def form_valid(self, form):
+        # Set before the form saves: ``AddressForm.save`` needs an owner
+        # to decide whether this is the customer's first address.
+        form.instance.user = self.request.user
+        return super().form_valid(form)
+
+
+class AddressUpdateView(OwnAddressesMixin, SuccessMessageMixin, UpdateView):
+    form_class = AddressForm
+    template_name = "accounts/address_form.html"
+    success_message = "Address updated."
+
+
+class AddressDeleteView(OwnAddressesMixin, SuccessMessageMixin, DeleteView):
+    template_name = "accounts/address_confirm_delete.html"
+    context_object_name = "address"
+    success_message = "Address deleted."
