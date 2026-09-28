@@ -248,10 +248,12 @@ class DiscountCode(models.Model):
         if not self.is_active:
             return f"{self.code} is no longer available."
         if self.starts_at and at < self.starts_at:
-            starts = timezone.localtime(self.starts_at).strftime("%B %-d")
+            starts = timezone.localtime(self.starts_at)
+            starts = f"{starts:%B} {starts.day}"
             return f"{self.code} doesn't start until {starts}."
         if self.ends_at and at >= self.ends_at:
-            ended = timezone.localtime(self.ends_at).strftime("%B %-d")
+            ended = timezone.localtime(self.ends_at)
+            ended = f"{ended:%B} {ended.day}"
             return f"{self.code} expired on {ended}."
         if self.total_limit is not None and self.times_used() >= self.total_limit:
             return f"{self.code} has been fully claimed."
