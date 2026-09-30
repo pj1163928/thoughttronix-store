@@ -1,5 +1,7 @@
 from django.contrib import admin
 
+from products.admin import image_preview
+
 from .models import Cart, CartItem, DiscountCode, Order, OrderItem
 
 
@@ -35,6 +37,13 @@ class CartAdmin(admin.ModelAdmin):
 class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 0
+    readonly_fields = ("snapshot",)
+
+    @admin.display(description="Image at purchase")
+    def snapshot(self, item):
+        if item.pk is None:
+            return "—"
+        return image_preview(item.thumbnail)
 
 
 @admin.register(Order)

@@ -136,6 +136,20 @@ STATIC_URL = "static/"
 STATICFILES_DIRS = [BASE_DIR / "assets"]
 
 
+# Media — product and order images written by products/images.py.
+
+MEDIA_URL = "media/"
+
+MEDIA_ROOT = env.path("MEDIA_ROOT", default=BASE_DIR / "media")
+
+# Django serves /media/ itself when this is true. Deliberately independent
+# of DEBUG: Django's own static() helper stops serving media when DEBUG is
+# off, which would turn every product photo into a broken image — the one
+# thing the render-time existence check cannot see. Turn it off only when
+# a web server in front of Django serves MEDIA_ROOT instead.
+SERVE_MEDIA = env.bool("SERVE_MEDIA", default=True)
+
+
 # Tailwind CSS + DaisyUI (django-tailwind-cli, standalone binary — no Node.js)
 
 TAILWIND_CLI_USE_DAISY_UI = True

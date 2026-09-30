@@ -1,0 +1,150 @@
+{% extends "backoffice/base.html" %}
+
+{% block title %}Images for {{ product.name }} — Back office{% endblock %}
+
+{% block backoffice %}
+  <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h2 class="text-xl font-semibold">Images for &ldquo;{{ product.name }}&rdquo;</h2>
+      <p class="mt-1 text-sm opacity-60">
+        JPEG, PNG or WebP, at least 600 pixels on each side, up to 10 MB. Every
+        upload is resized and converted to WebP; the original isn't kept.
+      </p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{% url 'products:manage_product_update' product.pk %}" class="btn btn-ghost btn-sm">Edit details</a>
+      <a href="{{ product.get_absolute_url }}" class="btn btn-ghost btn-sm">View in store →</a>
+    </div>
+  </div>
+
+  <div class="grid gap-6 lg:grid-cols-3">
+    <section class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h3 class="card-title text-base">Card preview</h3>
+        <p class="text-xs opacity-60">How the catalog shows it: a 4:5 frame, cropped to fill.</p>
+        <div class="mx-auto mt-2 aspect-[4/5] w-full max-w-60 overflow-hidden rounded-box bg-base-200">
+          {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" eager=True %}
+        </div>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md lg:col-span-2">
+      <div class="card-body">
+        <h3 class="card-title text-base">Main image</h3>
+
+        {% if product.has_image %}
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <p class="text-sm">
+              <span class="opacity-60">Alt text:</span>
+              {% if product.image_alt %}{{ product.image_alt }}{% else %}<span class="italic opacity-60">none — the product name is used</span>{% endif %}
+              <span class="opacity-60">· {{ product.image_width }} × {{ product.image_height }} pixels</span>
+            </p>
+            <a href="{% url 'products:manage_product_image_remove' product.pk %}"
+               class="btn btn-ghost btn-xs text-error">Remove main image</a>
+          </div>
+        {% elif product.image %}
+          <div class="alert alert-warning text-sm" role="alert">
+            <span>
+              The main image's file is missing from storage, so the store is showing
+              the {{ product.category.name }} placeholder. Upload it again to fix this.
+            </span>
+          </div>
+        {% else %}
+          <p class="text-sm opacity-70">
+            No main image yet — the store shows the {{ product.category.name }} placeholder.
+          </p>
+        {% endif %}
+
+        <form method="post" enctype="multipart/form-data"
+              action="{% url 'products:manage_product_image_upload' product.pk %}"
+              class="mt-2 space-y-4">
+          {% csrf_token %}
+          {% for field in main_form %}
+            {% include "products/partials/_field.html" %}
+          {% endfor %}
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-primary">
+              {% if product.image %}Replace main image{% else %}Upload main image{% endif %}
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+  </div>
+
+  <section class="card mt-6 bg-base-100 shadow-md">
+    <div class="card-body">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h3 class="card-title text-base">
+          Extra images
+          <span class="badge badge-outline">{{ extras|length }} / {{ max_extras }}</span>
+        </h3>
+      </div>
+      <p class="text-sm opacity-60">
+        Shown after the main image in the product page's gallery. They never
+        replace the main image.
+      </p>
+
+      {% if extras %}
+        <ol class="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {% for extra in extras %}
+            <li class="rounded-box border border-base-300 p-2">
+              <div class="aspect-[4/5] overflow-hidden rounded bg-base-200">
+                {% include "products/partials/_picture.html" with pic=extra.preview class="h-full w-full" %}
+              </div>
+              <p class="mt-2 text-xs">
+                <span class="font-semibold">Image {{ forloop.counter|add:1 }}</span>
+                {% if extra.preview.is_placeholder %}
+                  <span class="badge badge-warning badge-xs">file missing</span>
+                {% endif %}
+              </p>
+              <p class="truncate text-xs opacity-60" title="{{ extra.alt_text }}">
+                {% if extra.alt_text %}{{ extra.alt_text }}{% else %}No alt text{% endif %}
+              </p>
+              <div class="mt-2 flex items-center gap-1">
+                <form method="post" action="{% url 'products:manage_product_extra_move' product.pk extra.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="direction" value="up" />
+                  <button type="submit" class="btn btn-ghost btn-xs" aria-label="Move earlier"
+                          {% if forloop.first %}disabled{% endif %}>↑</button>
+                </form>
+                <form method="post" action="{% url 'products:manage_product_extra_move' product.pk extra.pk %}">
+                  {% csrf_token %}
+                  <input type="hidden" name="direction" value="down" />
+                  <button type="submit" class="btn btn-ghost btn-xs" aria-label="Move later"
+                          {% if forloop.last %}disabled{% endif %}>↓</button>
+                </form>
+                <a href="{% url 'products:manage_product_extra_remove' product.pk extra.pk %}"
+                   class="btn btn-ghost btn-xs ml-auto text-error">Remove</a>
+              </div>
+            </li>
+          {% endfor %}
+        </ol>
+      {% else %}
+        <p class="mt-2 py-4 text-center text-sm opacity-60">
+          No extra images. Most products only need the main one.
+        </p>
+      {% endif %}
+
+      <div class="divider my-1"></div>
+
+      {% if can_add_extra %}
+        <form method="post" enctype="multipart/form-data"
+              action="{% url 'products:manage_product_extra_add' product.pk %}"
+              class="space-y-4">
+          {% csrf_token %}
+          {% for field in extra_form %}
+            {% include "products/partials/_field.html" %}
+          {% endfor %}
+          <div class="flex justify-end">
+            <button type="submit" class="btn btn-primary">Add extra image</button>
+          </div>
+        </form>
+      {% else %}
+        <div class="alert alert-info text-sm" role="status">
+          <span>{{ extras_limit }}</span>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

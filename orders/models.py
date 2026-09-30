@@ -4,9 +4,18 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator, RegexValidator
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.functional import cached_property
 
-from products.models import Product
+from products.images import (
+    ORDER_FOLDER,
+    Picture,
+    delete_files_on_commit,
+    stored_picture,
+)
+from products.models import DEFAULT_PLACEHOLDER, Product
 
 ZERO = Decimal("0.00")
 CENT = Decimal("0.01")
@@ -362,8 +371,8 @@ class Cart(models.Model):
         return item
 
     def lines(self):
-        """Line items with their products loaded, ready for display."""
-        return self.items.select_related("product")
+        """Line items with their products (and categories, for placeholders) loaded."""
+        return self.items.select_related("product__category")
 
     def subtotal(self):
         """The cart's contents at list price, before any discount."""
@@ -436,6 +445,20 @@ class CartItem(models.Model):
             self.save()
 
 
+class OrderQuerySet(models.QuerySet):
+    def with_items(self):
+        """Prefetch each order's lines with their product and category.
+
+        Everything an order page's line thumbnails read, in two queries
+        however many orders and lines there are.
+        """
+        return self.prefetch_related(
+            models.Prefetch(
+                "items", queryset=OrderItem.objects.select_related("product__category")
+            )
+        )
+
+
 class Order(models.Model):
     """A placed order — a snapshot, never a live view of the catalog.
 
@@ -496,6 +519,8 @@ class Order(models.Model):
     # default (not auto_now_add) so the seed can backdate orders.
     created_at = models.DateTimeField(default=timezone.now)
 
+    objects = OrderQuerySet.as_manager()
+
     class Meta:
         ordering = ["-created_at"]
 
@@ -519,6 +544,12 @@ class OrderItem(models.Model):
     Name and unit price are denormalized: order history must not change
     when the catalog does. The product FK survives for linking while the
     product exists.
+
+    The image is denormalized too: ``snapshot_for_order`` copies the
+    product's thumbnail onto the line once the order commits, so a later
+    image change (or the product's deletion) leaves this line as bought.
+    Lines placed before images existed, or whose copy failed, have none
+    and show a placeholder.
     """
 
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
@@ -526,6 +557,9 @@ class OrderItem(models.Model):
     product_name = models.CharField(max_length=200)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     quantity = models.PositiveIntegerField()
+    image = models.ImageField(upload_to=ORDER_FOLDER, blank=True, editable=False)
+    image_width = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    image_height = models.PositiveIntegerField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ["pk"]
@@ -536,3 +570,29 @@ class OrderItem(models.Model):
     @property
     def line_total(self):
         return self.unit_price * self.quantity
+
+    @cached_property
+    def thumbnail(self):
+        """The line's own image snapshot, or its product's category placeholder.
+
+        Load lines with ``Order.objects.with_items()`` (or
+        ``select_related("product__category")``) so the placeholder costs
+        no queries.
+        """
+        snapshot = stored_picture(
+            self.image, self.image_width, self.image_height, self.product_name
+        )
+        if snapshot is not None:
+            return snapshot
+        placeholder = (
+            self.product.category.placeholder_image
+            if self.product_id and self.product
+            else DEFAULT_PLACEHOLDER
+        )
+        return Picture.placeholder(placeholder, self.product_name)
+
+
+@receiver(post_delete, sender=OrderItem)
+def delete_order_item_image(sender, instance, **kwargs):
+    """A deleted order line takes its image snapshot with it (on commit)."""
+    delete_files_on_commit(instance.image.name)

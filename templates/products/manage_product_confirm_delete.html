@@ -7,8 +7,9 @@
     <div class="card-body">
       <h2 class="card-title">Delete &ldquo;{{ product.name }}&rdquo;?</h2>
       <p class="opacity-70">
-        This removes the product from the store permanently. Past orders keep
-        their purchase-time copy of its name and price.
+        This removes the product and its images from the store permanently.
+        Past orders keep their purchase-time copy of its name, price and
+        picture.
       </p>
       <form method="post" class="mt-4 flex justify-end gap-2">
         {% csrf_token %}

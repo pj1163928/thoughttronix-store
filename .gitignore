@@ -9,6 +9,7 @@ __pycache__/
 # Django
 db.sqlite3
 staticfiles/
+media/
 
 # Tailwind (downloaded CLI binary and compiled CSS)
 .django_tailwind_cli/

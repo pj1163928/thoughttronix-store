@@ -11,6 +11,8 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   [docs/DISCOUNTS.md](docs/DISCOUNTS.md)
 - changing `Address`, the address book, or checkout's address fields →
   [docs/ADDRESSES.md](docs/ADDRESSES.md)
+- touching product or order images, `products/images.py`, the Images
+  page, or media settings → [docs/IMAGES.md](docs/IMAGES.md)
 
 ## Commands
 
@@ -31,14 +33,16 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   saved address book. Roles are Django's own vocabulary: customers are plain
   users, employees are `is_staff`, the admin is `is_superuser`. No role field,
   no Groups.
-- `products/` — catalog (`Category`, `Product`, `Tag`), its back-office CRUD,
-  and the `seed` command
+- `products/` — catalog (`Category`, `Product`, `Tag`, `ProductImage`), its
+  back-office CRUD and Images page, and the `seed` command (baseline photos
+  in `products/seed_images/`)
 - `orders/` — cart, checkout, orders, discount codes, and the back-office
   order and discount management
 - `dashboard/` — the staff analytics dashboard
 - `templates/` — `base.html` and `templates/<app>/`
 - `assets/` — static sources; `assets/css/tailwind.css` is compiled output
   (gitignored, never edit)
+- `media/` — uploaded and seeded images (`MEDIA_ROOT`, gitignored)
 - `PROMPTS.md` — the AI-usage log; append entries, never rewrite history
 - `README.md`, `MAP.md`, `REFLECTION.md` — course write-ups; not a source of
   truth for the code
@@ -48,9 +52,10 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 Logic lives in models and managers; cross-model workflows get a service
 module; views stay thin.
 
-Exactly two deliberate deep modules, docstrings and type hints on every
-public function: `orders/services.py` (`place_order`) and
-`dashboard/queries.py` (the dashboard's aggregations).
+Exactly three deliberate deep modules, docstrings and type hints on every
+public function: `orders/services.py` (`place_order`),
+`dashboard/queries.py` (the dashboard's aggregations) and
+`products/images.py` (image validation, storage and snapshots).
 
 Idiomatic Django throughout: class-based views, model methods, custom
 managers/querysets, forms own their validation. Settings read from `.env`

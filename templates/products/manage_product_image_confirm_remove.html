@@ -1,0 +1,23 @@
+{% extends "backoffice/base.html" %}
+
+{% block title %}Remove image — Back office{% endblock %}
+
+{% block backoffice %}
+  <div class="card mx-auto max-w-lg bg-base-100 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title">Remove {{ what }} from &ldquo;{{ product.name }}&rdquo;?</h2>
+      <div class="mx-auto my-2 aspect-[4/5] w-40 overflow-hidden rounded-box bg-base-200">
+        {% include "products/partials/_picture.html" with pic=picture class="h-full w-full" eager=True %}
+      </div>
+      <p class="opacity-70">
+        Its files are deleted permanently. {{ consequence }} Past orders keep
+        their own copy of the picture.
+      </p>
+      <form method="post" class="mt-4 flex justify-end gap-2">
+        {% csrf_token %}
+        <a href="{% url 'products:manage_product_images' product.pk %}" class="btn btn-ghost">Cancel</a>
+        <button type="submit" class="btn btn-error">Remove image</button>
+      </form>
+    </div>
+  </div>
+{% endblock %}

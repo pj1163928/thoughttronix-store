@@ -38,4 +38,7 @@
 - `assets/css/source.css` is the Tailwind input; `assets/css/tailwind.css` is
   compiled output (gitignored, never edit).
 - `assets/js/htmx.min.js` is vendored htmx 2.0.6 — no CDN.
-- `assets/images/placeholders/` holds the per-category product images.
+- `assets/images/placeholders/` holds the per-category placeholder images
+  (4:3 SVGs). Product and order images render only through
+  `products/partials/_picture.html` from a `Picture`, never from a field;
+  see [IMAGES.md](IMAGES.md).

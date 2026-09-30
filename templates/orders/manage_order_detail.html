@@ -28,13 +28,18 @@
         {% for item in order.items.all %}
           <tr>
             <td class="font-semibold">
-              {% if item.product %}
-                <a href="{{ item.product.get_absolute_url }}" class="link-hover">
+              <div class="flex items-center gap-3">
+                <span class="block aspect-[4/5] w-12 shrink-0 overflow-hidden rounded bg-base-200">
+                  {% include "products/partials/_picture.html" with pic=item.thumbnail class="h-full w-full" %}
+                </span>
+                {% if item.product %}
+                  <a href="{{ item.product.get_absolute_url }}" class="link-hover">
+                    {{ item.product_name }}
+                  </a>
+                {% else %}
                   {{ item.product_name }}
-                </a>
-              {% else %}
-                {{ item.product_name }}
-              {% endif %}
+                {% endif %}
+              </div>
             </td>
             <td>${{ item.unit_price|intcomma }}</td>
             <td>{{ item.quantity }}</td>

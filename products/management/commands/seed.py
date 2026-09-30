@@ -14,8 +14,10 @@ Demo logins (documented in the README):
 import random
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
@@ -23,7 +25,10 @@ from django.utils.text import slugify
 
 from accounts.models import Address
 from orders.models import Cart, DiscountCode, Order, OrderItem
-from products.models import Category, Product, Tag
+from products import images
+from products.models import Category, Product, ProductImage, Tag
+
+SEED_IMAGES_DIR = Path(__file__).resolve().parents[2] / "seed_images"
 
 TAGS = [
     "always listening",
@@ -425,6 +430,93 @@ CATALOG = {
     ],
 }
 
+# The baseline product photography in products/seed_images/, by product
+# slug: slug -> (main file, main alt text, [(extra file, extra alt text)]).
+# An explicit table rather than a filename convention, so a stray file
+# can't quietly become a product photo. Every file goes through
+# images.validate_image, exactly like an employee's upload. Products not
+# listed here keep their category placeholder.
+SEED_IMAGES = {
+    "seraphine": (
+        "seraphine.png",
+        "Seraphine, a humanoid home assistant with a glowing ring for an ear, "
+        "in a dark living room while a child and a figure in the doorway look on.",
+        [],
+    ),
+    "hush": (
+        "hush.png",
+        "Hush, a small white robot with glowing eyes, projecting a dreamy "
+        "cloud of light over a sleeping baby's crib.",
+        [],
+    ),
+    "mindsync": (
+        "mindsync.png",
+        "A man with a MindSync implant visible behind his ear holds a coffee "
+        "and looks out over a city laced with light.",
+        [],
+    ),
+    "mindsync-duo": (
+        "mindsync-duo.png",
+        "A couple sit close on a sofa holding a framed photo, beside the "
+        "MindSync Duo headline “Two minds. One thought.”",
+        [],
+    ),
+    "recallpro": (
+        "recallpro.png",
+        "A man with a drink sits beside the RecallPro base station, "
+        "surrounded by translucent scenes from his own memories.",
+        [],
+    ),
+    "moodset": (
+        "moodset.png",
+        "Office workers in an elevator wearing MoodSet headbands under a "
+        "display cycling through “Focus, Contentment, Confidence”.",
+        [],
+    ),
+    "dreamweaver": (
+        "dreamweaver.png",
+        "A woman asleep in a DreamWeaver headband while a chrome android "
+        "draws glowing threads of her dream out of the air above her.",
+        [],
+    ),
+    "veil": (
+        "veil.png",
+        "A man in a suit slumped asleep at his desk with the white Veil cap "
+        "pulled over his face, a city at night behind him.",
+        [],
+    ),
+    "calm-collar": (
+        "calm-collar.png",
+        "A man with eyes closed wearing the Calm Collar, its blue light "
+        "glowing at his throat, beside a biometric feedback display.",
+        [],
+    ),
+    "syncrest": (
+        "syncrest.png",
+        "A woman asleep on the SyncRest pillow as a column of blue light "
+        "streams up from it in a dark bedroom.",
+        [
+            (
+                "syncrest-poster.png",
+                "The SyncRest poster: “Charges your implant while you sleep. "
+                "Uploads too.”, with its five features listed along the bottom.",
+            )
+        ],
+    ),
+    "soulsear-mark-i": (
+        "soulsear-mark-i.png",
+        "The four-legged SoulSear Mark I firing a red energy beam across a "
+        "flooded, ruined skyline.",
+        [],
+    ),
+    "crowdcalm-array": (
+        "crowdcalm-array.png",
+        "A saucer-shaped CrowdCalm Array hovers over a calm crowd of "
+        "protesters and police outside a domed capitol building.",
+        [],
+    ),
+}
+
 DEMO_USERS = [
     # (username, password, email, first, last, is_staff, is_superuser, job_title)
     ("admin", "admin123", "admin@example.com", "Ada", "Admin", True, True, None),
@@ -583,6 +675,7 @@ class Command(BaseCommand):
         self._wipe()
         tags = self._create_tags()
         self._create_catalog(tags)
+        self._attach_images()
         self._create_users()
         self._create_addresses()
         self._create_discount_codes()
@@ -593,7 +686,9 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 f"Seeded {Category.objects.count()} categories, "
                 f"{Tag.objects.count()} tags, "
-                f"{Product.objects.count()} products, "
+                f"{Product.objects.count()} products "
+                f"({Product.objects.exclude(image='').count()} with images, "
+                f"{ProductImage.objects.count()} extras), "
                 f"{DiscountCode.objects.count()} discount codes, "
                 f"{get_user_model().objects.count()} users, "
                 f"{Order.objects.count()} orders, "
@@ -637,6 +732,23 @@ class Command(BaseCommand):
                     category=category,
                 )
                 product.tags.set(tags[tag_name] for tag_name in tag_names)
+
+    def _attach_images(self):
+        """The baseline photography, through the same pipeline as an upload.
+
+        The wipe already queued the previous run's files for deletion
+        (``post_delete``, on commit), so reseeding never piles up media.
+        """
+        for slug, (main, alt, extras) in SEED_IMAGES.items():
+            product = Product.objects.get(slug=slug)
+            images.set_main_image(product, self._prepare(main), alt)
+            for filename, extra_alt in extras:
+                images.add_extra_image(product, self._prepare(filename), extra_alt)
+
+    @staticmethod
+    def _prepare(filename):
+        with open(SEED_IMAGES_DIR / filename, "rb") as handle:
+            return images.validate_image(File(handle, name=filename))
 
     def _create_users(self):
         User = get_user_model()
@@ -776,7 +888,11 @@ class Command(BaseCommand):
             )
 
     def _build_order(self, *, user, created_at, status, lines, rng):
-        """One order with denormalized addresses and purchase-time prices."""
+        """One order with denormalized addresses, prices and image snapshots.
+
+        Built directly rather than through ``place_order`` (which can't
+        backdate), so it takes the image snapshot ``place_order`` would.
+        """
         street, city, state, zip_code = rng.choice(SEED_ADDRESSES)
         name = f"{user.first_name} {user.last_name}"
         order = Order.objects.create(
@@ -808,3 +924,4 @@ class Command(BaseCommand):
                 unit_price=product.price,
                 quantity=quantity,
             )
+        images.snapshot_for_order(order)

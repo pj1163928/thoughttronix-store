@@ -30,6 +30,106 @@ Each entry has this shape:
 
 ---
 
+## 2026-09-30 — Product images: the design interview and the handoff
+
+### Prompts
+
+1. The `/grill-me` skill, given the feature in the user's own words:
+   "Currently there are no images on the catalog, and only a placeholder is
+   shown for each item. This has allegedly reduced sales for products, as
+   they do not have an idea as to what the product looks like. Some
+   additional criteria for this image implementation are that a set of
+   baseline images should be used; these images are located in a temporary
+   folder called product-images. Pages should remain fast and responsive.
+   The following has been mentioned as non-negotiable: Every product must
+   display either its intended image or an existing placeholder. Missing
+   files or broken images should not be loaded or attempted to be loaded.
+   Employees must also be able to upload images through the back office; if
+   an image file is unsuitable, reject the image and explain to the employee
+   why the image cannot be used in clear/understandable language. Also do
+   not accept the file first and then lose it."
+2. "A" (Q1: `ImageField` under `MEDIA_ROOT`)
+3. "Can we go with B but add some additional prameters, by default a
+   product should only get one image but, we should also add the ability to
+   potentially add more than one if we so choose. This should not affect
+   the main image but still allow you to view the other images if there are
+   more than one" (Q2: one image vs. gallery)
+4. "A" (Q3: `Product.image` plus a separate `ProductImage` for extras)
+5. "B" (Q4: resize at upload to two WebPs, discard the original)
+6. "D" (Q5: render-time existence check plus disk/DB sync)
+7. "A" (Q6: the seven validation rules and their messages)
+8. "A" (Q7: a separate per-product Images page)
+9. "lets go with A for both" (Q8a SyncRest clean main + poster extra;
+   Q8b SoulSear image on Mark I only)
+10. "A" (Q9: fixed 4:5 card frame, cropped to fit)
+11. "A" (Q10: CSS carousel with thumbnail row)
+12. "A" (Q11: all seven Images-page actions, 8-extra limit)
+13. "A" (Q12: optional alt text with fallbacks)
+14. "B" (Q13: `SERVE_MEDIA` setting, on by default)
+15. "C" (Q14: images on cart, checkout *and* order pages)
+16. "B" (Q14b: snapshot the thumbnail onto `OrderItem` at purchase)
+17. "A" (Q15: images read-only in Django admin)
+18. "A" (Q16: third deep module, `products/images.py`)
+19. The `/handoff` skill: "the next session implements the design we just
+    agreed"
+20. "Ok using the PROMPTS.md write a session log using the standard prompt
+    listed there"
+
+### Summary
+
+- **Outcome:** Design only; no application code was written. Seventeen
+  questions (Q1–Q16 plus a Q14b sub-question), one at a time, each naming
+  what it settled and recommending an option. The agreed design is recorded
+  in `HANDOFF.md` and nowhere else yet. In brief: a main image on
+  `Product.image` and up to eight ordered extras in `ProductImage`; every
+  upload validated by seven plain-language rules and re-encoded to a
+  display and thumbnail WebP; templates only ever ask a model property that
+  returns the file's URL if it exists on disk, else the category
+  placeholder; uploads live on a dedicated Images page so an unrelated
+  form error can't discard them; order lines snapshot their thumbnail in
+  `place_order`, where a failed copy must never fail the order; and the
+  pipeline becomes a third deep module, `products/images.py`, with
+  CLAUDE.md to be amended to say so.
+
+  Several decisions came from reading rather than asking: the baseline
+  PNGs are ~2 MB each (about 25 MB for a catalog page served raw); the
+  placeholders are 4:3 while 12 of 13 photos are ~4:5; `docs/TEMPLATES.md`
+  forbids JavaScript beyond HTMX, which ruled out gallery libraries;
+  `ProductAdmin` restricts no fields, so the new `ImageField` would have
+  appeared in `/admin/` as an unvalidated back door; Django stops serving
+  media when `DEBUG=False`, which would have produced exactly the broken
+  images the brief forbids, and the render-time file check can't catch it;
+  CLAUDE.md's "exactly two deep modules" rule meant Q16 had to be asked
+  rather than drifted past; and the seed builds its demo orders directly,
+  not through `place_order`, so snapshots there need their own step. The
+  two ambiguous baseline images were settled by looking at them and
+  checking seed descriptions — Mark I's "took several things off it"
+  matched a ruined skyline, and Tactical Core's tagline is literally
+  "without the skyline".
+
+- **Deviations:** two recommendations were overridden, and both widened the
+  design. Q2: I recommended one image per product; the user chose a gallery
+  constrained to one main image plus optional extras that never affect it.
+  That reshaped Q3 (hybrid model), and created Q10 (the carousel) and most
+  of Q11 (the extras actions and limit). Q14: I recommended stopping images
+  at the cart and checkout; the user chose order pages too. That forced
+  Q14b, because `OrderItem` only links to the *current* product and would
+  have shown today's image on months-old orders; it was settled as a
+  snapshot, which touches `place_order`. One answer was read more broadly
+  than given — "A" to Q1 was taken to also approve moving the baseline
+  images into a committed folder, and the user was told so. One question
+  was left unanswered: whether to write `prd/` and `plans/` documents
+  before coding. `HANDOFF.md` tells the next session to ask it first.
+
+- **Sideways:** no code, so nothing broke, but the interview contained
+  counting errors of mine. Q8 said "eleven of the 13 files match exactly
+  one product" above a table of ten; the true split was ten unambiguous,
+  one ambiguous (SoulSear) and two for one product (SyncRest). Q12 said the
+  seed had 14 images; it has 13 across 12 products. That one was caught and
+  corrected at the start of the next reply. The Q8 miscount was not caught
+  until this log. Q1's "about 21 products keep the placeholder" became 22
+  once the mapping was settled.
+
 ## 2026-09-22 — Discount codes: the design interview, the build, and the review
 
 *Session ran 21–22 September and is logged on the 22nd. This is the session

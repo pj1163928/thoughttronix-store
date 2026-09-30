@@ -1,0 +1,6 @@
+{# One <img> from a resolved Picture (``pic``) — never from an image field directly. #}
+{# Photos fill their frame (object-cover); placeholders are shown whole (object-contain). #}
+{# Lazy by default; pass eager=True for the above-the-fold product image. #}
+<img src="{{ pic.url }}" alt="{{ pic.alt }}" width="{{ pic.width }}" height="{{ pic.height }}"
+     decoding="async"{% if not eager %} loading="lazy"{% endif %}
+     class="{% if pic.is_placeholder %}object-contain{% else %}object-cover{% endif %} {{ class }}" />

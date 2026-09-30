@@ -278,10 +278,13 @@ class CheckoutAddressFieldsView(LoginRequiredMixin, View):
 
 
 class OwnOrdersMixin(LoginRequiredMixin):
-    """Orders are always fetched through the owner — never by bare pk."""
+    """Orders are always fetched through the owner — never by bare pk.
+
+    Lines come prefetched with their products, for the line thumbnails.
+    """
 
     def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
+        return Order.objects.filter(user=self.request.user).with_items()
 
 
 class OrderConfirmationView(OwnOrdersMixin, DetailView):
@@ -299,9 +302,6 @@ class OrderHistoryView(OwnOrdersMixin, ListView):
 class OrderDetailView(OwnOrdersMixin, DetailView):
     template_name = "orders/order_detail.html"
     context_object_name = "order"
-
-    def get_queryset(self):
-        return super().get_queryset().prefetch_related("items")
 
 
 # --- The back office --------------------------------------------------------
@@ -338,7 +338,7 @@ class ManageOrderDetailView(StaffRequiredMixin, DetailView):
 
     template_name = "orders/manage_order_detail.html"
     context_object_name = "order"
-    queryset = Order.objects.select_related("user").prefetch_related("items")
+    queryset = Order.objects.select_related("user").with_items()
     extra_context = {"section": "orders"}
 
     def get_context_data(self, **kwargs):

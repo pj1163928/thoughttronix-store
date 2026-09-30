@@ -18,6 +18,7 @@
       <table class="table">
         <thead>
           <tr>
+            <th>Image</th>
             <th>Product</th>
             <th>Category</th>
             <th>Price</th>
@@ -28,6 +29,18 @@
         <tbody>
           {% for product in products %}
             <tr>
+              <td>
+                <a href="{% url 'products:manage_product_images' product.pk %}"
+                   title="Manage images for {{ product.name }}">
+                  {% if product.has_image %}
+                    <span class="block aspect-[4/5] w-12 overflow-hidden rounded bg-base-200">
+                      {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" %}
+                    </span>
+                  {% else %}
+                    <span class="badge badge-ghost badge-sm whitespace-nowrap">No image</span>
+                  {% endif %}
+                </a>
+              </td>
               <td>
                 <a href="{% url 'products:manage_product_update' product.pk %}"
                    class="link-hover font-semibold">{{ product.name }}</a>
@@ -48,6 +61,8 @@
               <td class="text-right">
                 <a href="{% url 'products:manage_product_update' product.pk %}"
                    class="btn btn-ghost btn-xs">Edit</a>
+                <a href="{% url 'products:manage_product_images' product.pk %}"
+                   class="btn btn-ghost btn-xs">Images</a>
                 <a href="{% url 'products:manage_product_delete' product.pk %}"
                    class="btn btn-ghost btn-xs text-error">Delete</a>
               </td>

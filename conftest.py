@@ -4,16 +4,67 @@ Shared test data lives here as plain fixtures — no factories. The suite
 grows with the project; tests never invoke the seed command.
 """
 
+import io
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
+from PIL import Image
 
 from accounts.models import Address
 from orders.models import Cart, CartItem, DiscountCode
 from products.models import Category, Product, Tag
+
+
+@pytest.fixture(autouse=True)
+def media_root(settings, tmp_path):
+    """Every test writes images to its own throwaway folder, never ./media."""
+    settings.MEDIA_ROOT = tmp_path / "media"
+    return settings.MEDIA_ROOT
+
+
+@pytest.fixture
+def make_image():
+    """Build an in-memory upload: ``make_image(800, 1000, "PNG", name="x.png")``.
+
+    Extra keyword arguments go to Pillow's ``save`` (e.g. ``exif=``,
+    ``save_all=`` and ``append_images=`` for an animation). ``mode`` and
+    ``color`` shape the pixels.
+    """
+
+    def build(
+        width=800,
+        height=1000,
+        format="PNG",
+        *,
+        name=None,
+        mode="RGB",
+        color=None,
+        **save_options,
+    ):
+        image = Image.new(mode, (width, height), color or _default_color(mode))
+        buffer = io.BytesIO()
+        image.save(buffer, format, **save_options)
+        extension = {"JPEG": "jpg"}.get(format, format.lower())
+        return SimpleUploadedFile(
+            name or f"photo.{extension}",
+            buffer.getvalue(),
+            content_type=f"image/{extension}",
+        )
+
+    return build
+
+
+def _default_color(mode):
+    return {
+        "RGBA": (40, 80, 200, 128),
+        "CMYK": (0, 128, 255, 0),
+        "L": 128,
+        "P": 3,
+    }.get(mode, (40, 80, 200))
 
 
 @pytest.fixture

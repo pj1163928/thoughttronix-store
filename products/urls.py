@@ -30,6 +30,36 @@ urlpatterns = [
         name="manage_product_delete",
     ),
     path(
+        "backoffice/products/<int:pk>/images/",
+        views.ManageProductImagesView.as_view(),
+        name="manage_product_images",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/main/",
+        views.UploadMainImageView.as_view(),
+        name="manage_product_image_upload",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/main/remove/",
+        views.RemoveMainImageView.as_view(),
+        name="manage_product_image_remove",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/extras/add/",
+        views.AddExtraImageView.as_view(),
+        name="manage_product_extra_add",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/extras/<int:extra_pk>/remove/",
+        views.RemoveExtraImageView.as_view(),
+        name="manage_product_extra_remove",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/extras/<int:extra_pk>/move/",
+        views.MoveExtraImageView.as_view(),
+        name="manage_product_extra_move",
+    ),
+    path(
         "backoffice/catalog/",
         views.ManageCatalogView.as_view(),
         name="manage_catalog",

@@ -1,4 +1,4 @@
-"""Dashboard aggregations — the second of the codebase's two deep modules.
+"""Dashboard aggregations — the second of the codebase's three deep modules.
 
 The interface is the product: six functions that answer the questions
 leadership actually asks. Every one takes an optional ``since`` cutoff

@@ -108,8 +108,13 @@
           <h2 class="card-title">Your order</h2>
           <ul class="space-y-2">
             {% for item in cart.lines %}
-              <li class="flex justify-between gap-4 text-sm">
-                <span>{{ item.quantity }} × {{ item.product.name }}</span>
+              <li class="flex items-center justify-between gap-4 text-sm">
+                <span class="flex items-center gap-3">
+                  <span class="block aspect-[4/5] w-10 shrink-0 overflow-hidden rounded bg-base-200">
+                    {% include "products/partials/_picture.html" with pic=item.product.card_image class="h-full w-full" %}
+                  </span>
+                  <span>{{ item.quantity }} × {{ item.product.name }}</span>
+                </span>
                 <span class="whitespace-nowrap">${{ item.line_total|intcomma }}</span>
               </li>
             {% endfor %}

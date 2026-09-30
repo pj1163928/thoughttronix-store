@@ -12,6 +12,7 @@
         <thead>
           <tr>
             <th>Order</th>
+            <th>Items</th>
             <th>Placed</th>
             <th>Status</th>
             <th class="text-right">Total</th>
@@ -24,6 +25,18 @@
                 <a href="{% url 'orders:detail' order.pk %}" class="link-hover font-mono font-semibold">
                   {{ order.number }}
                 </a>
+              </td>
+              <td>
+                <div class="flex items-center gap-1">
+                  {% for item in order.items.all|slice:":4" %}
+                    <span class="block aspect-[4/5] w-8 overflow-hidden rounded bg-base-200" title="{{ item.quantity }} × {{ item.product_name }}">
+                      {% include "products/partials/_picture.html" with pic=item.thumbnail class="h-full w-full" %}
+                    </span>
+                  {% endfor %}
+                  {% if order.items.all|length > 4 %}
+                    <span class="text-xs opacity-60">+{{ order.items.all|length|add:-4 }}</span>
+                  {% endif %}
+                </div>
               </td>
               <td>{{ order.created_at|date:"M j, Y" }}</td>
               <td>{% include "orders/partials/_status_badge.html" %}</td>

@@ -13,6 +13,13 @@
       <div class="card-body items-center">
         <p class="text-sm uppercase tracking-wide opacity-60">Order number</p>
         <p class="font-mono text-2xl font-bold text-primary">{{ order.number }}</p>
+        <div class="mt-3 flex flex-wrap justify-center gap-2">
+          {% for item in order.items.all %}
+            <span class="block aspect-[4/5] w-14 overflow-hidden rounded bg-base-200" title="{{ item.quantity }} × {{ item.product_name }}">
+              {% include "products/partials/_picture.html" with pic=item.thumbnail class="h-full w-full" %}
+            </span>
+          {% endfor %}
+        </div>
         <p class="mt-2">
           {{ order.items.count }} item{{ order.items.count|pluralize }}
           · <span class="font-semibold">${{ order.total|intcomma }}</span>

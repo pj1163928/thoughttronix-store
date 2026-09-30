@@ -7,9 +7,18 @@
 {% block backoffice %}
   <div class="card mx-auto max-w-2xl bg-base-100 shadow-md">
     <div class="card-body">
-      <h2 class="card-title">
-        {% if form.instance.pk %}Edit &ldquo;{{ form.instance.name }}&rdquo;{% else %}New product{% endif %}
-      </h2>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="card-title">
+          {% if form.instance.pk %}Edit &ldquo;{{ form.instance.name }}&rdquo;{% else %}New product{% endif %}
+        </h2>
+        {% if form.instance.pk %}
+          <a href="{% url 'products:manage_product_images' form.instance.pk %}"
+             class="btn btn-ghost btn-sm">Images →</a>
+        {% endif %}
+      </div>
+      {% if not form.instance.pk %}
+        <p class="text-sm opacity-60">You'll add its images on the next page.</p>
+      {% endif %}
       <form method="post" class="mt-2 space-y-4">
         {% csrf_token %}
         {% for field in form %}

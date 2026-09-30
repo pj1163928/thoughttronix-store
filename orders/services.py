@@ -1,4 +1,4 @@
-"""Order placement — one of the codebase's two deliberate deep modules.
+"""Order placement — one of the codebase's three deliberate deep modules.
 
 The interface is the product: one function that turns a cart and a
 validated checkout into an order, all-or-nothing. Callers never touch
@@ -10,6 +10,8 @@ from typing import Any
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.db import transaction
+
+from products.images import snapshot_for_order
 
 from .models import ZERO, Cart, Order, OrderItem
 
@@ -57,6 +59,12 @@ def place_order(
     order written inside it, so two customers racing for the last use of
     a code cannot both win.
 
+    Each line's product image is snapshotted too, but deliberately
+    *after* the transaction commits: copying a file is the one step here
+    that can fail for reasons unrelated to the purchase, and it must
+    never be able to fail — or roll back — an order. A failed copy leaves
+    that line showing its placeholder; a rolled-back order copies nothing.
+
     Raises ``ValueError`` if the cart is empty, holds a product that is
     no longer available, or carries a code this customer cannot use.
     """
@@ -98,4 +106,7 @@ def place_order(
     cart.items.all().delete()
     cart.discount_code = None
     cart.save(update_fields=["discount_code"])
+    # A lambda, not functools.partial: a robust callback that fails is
+    # logged by its __qualname__, which a partial doesn't have.
+    transaction.on_commit(lambda: snapshot_for_order(order), robust=True)
     return order
