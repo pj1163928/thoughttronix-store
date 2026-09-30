@@ -1,67 +1,71 @@
-{% load static %}
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Safety and Recall Notices — The ThoughtTronix Store</title>
-    <link rel="stylesheet" href="{% static 'css/marketing.css' %}" />
-  </head>
-  <body>
-    <h1>Safety and Recall Notices</h1>
+{% extends "base.html" %}
 
-    <div class="recall-warning">
+{% block title %}Safety and Recall Notices — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <h1 class="text-3xl font-bold">Safety and Recall Notices</h1>
+  <p class="mt-2 opacity-70">
+    ThoughtTronix publishes every safety action taken against a product we
+    have sold. The list below is complete as far as we are able to say.
+  </p>
+
+  <div class="alert alert-warning mt-6" role="alert">
+    <span>
       <strong>If you own any product listed below, stop using it today.</strong>
       Do not attempt repair, resale, or reassurance. Contact us and wait.
-    </div>
+    </span>
+  </div>
 
-    <p>
-      ThoughtTronix publishes every safety action taken against a product we
-      have sold. The list below is complete as far as we are able to say.
-    </p>
-
-    <table class="notice-table">
-      <tr>
-        <th>Product</th>
-        <th>Notice date</th>
-        <th>Status</th>
-        <th>What to do</th>
-      </tr>
-      <tr>
-        <td>SoulSear Mark I</td>
-        <td>March 2024</td>
-        <td style="color: #cc0000; font-weight: bold;">Recalled</td>
-        <td>Do not operate. Remaining units are displayed, not sold.</td>
-      </tr>
-      <tr>
-        <td>MindSync Gen 1</td>
-        <td>September 2023</td>
-        <td style="color: #cc0000; font-weight: bold;">Recalled</td>
-        <td>Support has ended. Units in the field remain active. Contact us.</td>
-      </tr>
-      <tr>
-        <td>Extended Range Antenna</td>
-        <td>January 2026</td>
-        <td>Advisory</td>
-        <td>Confirm your listening radius complies with local ordinance.</td>
-      </tr>
+  <div class="mt-6 overflow-x-auto rounded-box bg-base-100 shadow-md">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>Notice date</th>
+          <th>Status</th>
+          <th>What to do</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="font-semibold">SoulSear Mark I</td>
+          <td>March 2024</td>
+          <td><span class="badge badge-error">Recalled</span></td>
+          <td>Do not operate. Remaining units are displayed, not sold.</td>
+        </tr>
+        <tr>
+          <td class="font-semibold">MindSync Gen 1</td>
+          <td>September 2023</td>
+          <td><span class="badge badge-error">Recalled</span></td>
+          <td>Support has ended. Units in the field remain active. Contact us.</td>
+        </tr>
+        <tr>
+          <td class="font-semibold">Extended Range Antenna</td>
+          <td>January 2026</td>
+          <td><span class="badge badge-warning">Advisory</span></td>
+          <td>Confirm your listening radius complies with local ordinance.</td>
+        </tr>
+      </tbody>
     </table>
+  </div>
 
-    <h2>How to reach us</h2>
-
-    <p>
-      Safety questions go to our recall desk. You may also
-      <a href="/">return to the catalog</a>, where every current product is
-      listed with its availability.
-    </p>
-
-    <div style="text-align: center;">
-      <a class="contact-button" href="mailto:recalls@thoughttronix.example">
-        Contact the recall desk
-      </a>
+  <div class="card mt-8 bg-base-100 shadow-md">
+    <div class="card-body">
+      <h2 class="card-title">How to reach us</h2>
+      <p>
+        Safety questions go to our recall desk. You may also
+        <a href="{% url 'products:catalog' %}" class="link link-primary">return to the catalog</a>,
+        where every current product is listed with its availability.
+      </p>
+      <div class="card-actions mt-2">
+        <a href="mailto:recalls@thoughttronix.example" class="btn btn-primary">
+          Contact the recall desk
+        </a>
+      </div>
     </div>
+  </div>
 
-    <p style="color: #777777; font-size: 14px;">
-      Last reviewed January 2026 by the Office of Product Reassurance.
-    </p>
-  </body>
-</html>
+  <p class="mt-6 text-sm opacity-60">
+    Last reviewed January 2026 by the Office of Product Reassurance.
+  </p>
+{% endblock %}
