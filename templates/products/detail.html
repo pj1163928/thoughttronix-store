@@ -13,38 +13,42 @@
   </div>
 
   <div class="grid grid-cols-1 gap-8 md:grid-cols-2">
-    {# The full image, uncropped. With extras, a CSS-only carousel (main image first) #}
-    {# and a row of thumbnail links that jump to each slide — no JavaScript. #}
-    {% with slides=product.gallery %}
-      {% if slides|length > 1 %}
-        <div>
-          <div class="carousel w-full items-center rounded-box bg-base-100 shadow-md">
-            {% for slide in slides %}
-              <div id="image-{{ forloop.counter }}" class="carousel-item w-full">
-                {% if forloop.first %}
-                  {% include "products/partials/_picture.html" with pic=slide.display class="h-auto w-full" eager=True %}
-                {% else %}
-                  {% include "products/partials/_picture.html" with pic=slide.display class="h-auto w-full" %}
+    <div>
+      {# The main image alone, full and uncropped. #}
+      <figure class="overflow-hidden rounded-box bg-base-100 shadow-md">
+        {% include "products/partials/_picture.html" with pic=product.display_image class="h-auto w-full" eager=True %}
+      </figure>
+
+      {# The other images in their own carousel: swipe or scroll it, or use the arrows. #}
+      {# Each arrow is a link to the neighbouring slide (wrapping round) — no JavaScript. #}
+      {% with extras=product.extra_pictures %}
+        {% if extras %}
+          <h2 class="mt-6 mb-2 text-sm font-semibold uppercase tracking-wide opacity-60">
+            More images <span class="font-normal">({{ extras|length }})</span>
+          </h2>
+          <div class="carousel w-full rounded-box bg-base-200 shadow-md">
+            {% for pic in extras %}
+              <div id="more-{{ forloop.counter }}" class="carousel-item relative w-full">
+                {% include "products/partials/_picture.html" with pic=pic fit="object-contain" class="h-80 w-full sm:h-96" %}
+                {% if extras|length > 1 %}
+                  <div class="absolute inset-x-3 top-1/2 flex -translate-y-1/2 justify-between">
+                    <a href="#more-{% if forloop.first %}{{ extras|length }}{% else %}{{ forloop.counter|add:-1 }}{% endif %}"
+                       class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
+                       aria-label="Previous image">❮</a>
+                    <a href="#more-{% if forloop.last %}1{% else %}{{ forloop.counter|add:1 }}{% endif %}"
+                       class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
+                       aria-label="Next image">❯</a>
+                  </div>
+                  <span class="badge badge-neutral badge-sm absolute bottom-3 right-3">
+                    {{ forloop.counter }} / {{ extras|length }}
+                  </span>
                 {% endif %}
               </div>
             {% endfor %}
           </div>
-          <div class="mt-3 flex flex-wrap gap-2">
-            {% for slide in slides %}
-              <a href="#image-{{ forloop.counter }}"
-                 class="block aspect-[4/5] w-16 overflow-hidden rounded-box bg-base-200 ring-1 ring-base-300 hover:ring-primary"
-                 aria-label="Show image {{ forloop.counter }} of {{ slides|length }}">
-                {% include "products/partials/_picture.html" with pic=slide.thumbnail class="h-full w-full" %}
-              </a>
-            {% endfor %}
-          </div>
-        </div>
-      {% else %}
-        <figure class="overflow-hidden rounded-box bg-base-100 shadow-md">
-          {% include "products/partials/_picture.html" with pic=product.display_image class="h-auto w-full" eager=True %}
-        </figure>
-      {% endif %}
-    {% endwith %}
+        {% endif %}
+      {% endwith %}
+    </div>
 
     <div>
       <h1 class="text-4xl font-bold">{{ product.name }}</h1>

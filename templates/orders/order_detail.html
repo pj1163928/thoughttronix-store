@@ -27,9 +27,7 @@
           <tr>
             <td class="font-semibold">
               <div class="flex items-center gap-3">
-                <span class="block aspect-[4/5] w-12 shrink-0 overflow-hidden rounded bg-base-200">
-                  {% include "products/partials/_picture.html" with pic=item.thumbnail class="h-full w-full" %}
-                </span>
+                {% include "products/partials/_thumbnail.html" with pic=item.thumbnail only %}
                 {% if item.product %}
                   <a href="{{ item.product.get_absolute_url }}" class="link-hover">
                     {{ item.product_name }}

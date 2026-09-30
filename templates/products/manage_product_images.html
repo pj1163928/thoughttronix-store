@@ -81,8 +81,8 @@
         </h3>
       </div>
       <p class="text-sm opacity-60">
-        Shown after the main image in the product page's gallery. They never
-        replace the main image.
+        Shown in the "More images" carousel below the main image on the
+        product page. "Make main image" swaps one with the current main image.
       </p>
 
       {% if extras %}
@@ -117,6 +117,10 @@
                 <a href="{% url 'products:manage_product_extra_remove' product.pk extra.pk %}"
                    class="btn btn-ghost btn-xs ml-auto text-error">Remove</a>
               </div>
+              <form method="post" action="{% url 'products:manage_product_extra_make_main' product.pk extra.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline btn-xs mt-1 w-full">Make main image</button>
+              </form>
             </li>
           {% endfor %}
         </ol>

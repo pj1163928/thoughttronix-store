@@ -3,8 +3,11 @@
 Images live in `products/images.py`, the third deep module. Nothing else
 writes, deletes or validates an image file. A product has one main image
 on `Product.image` and up to eight ordered extras in `ProductImage`.
-Extras never stand in for the main image: remove the main image and the
-store shows the placeholder, not the first extra. Each stored image is
+The product page shows the main image alone, with the extras in their
+own "More images" carousel below it. An extra never stands in for the
+main image by itself: remove the main image and the store shows the
+placeholder. It becomes main only when an employee chooses it
+(`make_main`, a swap of stored names, not of files). Each stored image is
 two WebPs, a *display* file (longest side 1200 px) and a *thumbnail*
 (600 px wide). The upload itself is not kept.
 
@@ -13,8 +16,8 @@ two WebPs, a *display* file (longest side 1200 px) and a *thumbnail*
 Templates never read an image field. They render a `Picture` (url,
 width, height, alt, `is_placeholder`) through
 `products/partials/_picture.html`, taken from `Product.card_image`
-(thumbnail), `Product.display_image` (display file), `Product.gallery`
-or `OrderItem.thumbnail`. Each returns the media URL only if the field
+(thumbnail), `Product.display_image` (display file),
+`Product.extra_pictures` or `OrderItem.thumbnail`. Each returns the media URL only if the field
 is set **and** the file is in storage right now. Otherwise it returns
 the category placeholder. Media is served under `SERVE_MEDIA`, which is
 deliberately independent of `DEBUG`, so the check and the server agree.
@@ -37,12 +40,28 @@ files of products, extras and order lines. In tests, pass
 
 ## Back office and admin
 
-Uploads happen on a product's own Images page
-(`products:manage_product_images`), never on the product form, so an
-unrelated validation error can't discard a chosen file. Creating a
-product redirects there. The image fields are `editable=False`, so the
-Django admin shows read-only previews and links to that page. There is
-no second upload path.
+The product form (create and edit) has an **Upload images** button. The
+chosen files go straight to `StageProductImagesView` over HTMX. It checks
+each file and *holds* the ones that pass (`stage_uploads` and
+`hold_image`, under `media/pending/`, swept after a day). The view
+returns `_image_picker.html`: a preview of every image with a "main
+image" radio button and a ✕ to discard an upload. When editing, the
+product's saved images are offered as choices too. The choice travels
+as `main_image`: `main`, `extra-<pk>` or `held-<token>`. On save,
+`attach_uploads` adds the held images, and `make_main` then promotes the
+chosen one.
+
+Holding also protects against browsers that empty a file input when a
+form comes back with errors. A typo in the price never costs the
+employee their photos. The form's `upload` field catches any files still
+in the input when Save is pressed. Held tokens come from the POST and
+are untrusted: `held_images` accepts only well-formed tokens for files
+that exist.
+
+Each product's Images page (`products:manage_product_images`) is where
+saved images are managed: replace, remove, reorder, make main, alt text. The
+image fields are `editable=False`, so the Django admin shows read-only
+previews and links to that page. The admin is not a way to upload.
 
 ## Order snapshots
 

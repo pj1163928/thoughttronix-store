@@ -1,0 +1,7 @@
+{# The one line-item thumbnail (cart, checkout, orders): a fixed 48×60 (4:5) frame around a Picture (``pic``). #}
+{# The <img> is sized itself (attributes + h-15 w-12), never as a percentage of its frame, so a stylesheet #}
+{# missing the frame's classes (e.g. a stale browser cache) still can't render the photo at full size. #}
+{# Optional: ``href`` makes the frame a link; ``tooltip`` sets its title. Include with ``only``. #}
+{% if href %}<a href="{{ href }}"{% else %}<span{% endif %} class="block h-15 w-12 shrink-0 overflow-hidden rounded bg-base-200"{% if tooltip %} title="{{ tooltip }}"{% endif %}>
+  {% include "products/partials/_picture.html" with pic=pic width=48 height=60 class="h-15 w-12 max-w-none" only %}
+{% if href %}</a>{% else %}</span>{% endif %}

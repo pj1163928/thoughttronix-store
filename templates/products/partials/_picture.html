@@ -1,6 +1,7 @@
 {# One <img> from a resolved Picture (``pic``) — never from an image field directly. #}
-{# Photos fill their frame (object-cover); placeholders are shown whole (object-contain). #}
+{# Photos fill their frame (object-cover) unless ``fit`` says otherwise; placeholders are shown whole. #}
 {# Lazy by default; pass eager=True for the above-the-fold product image. #}
-<img src="{{ pic.url }}" alt="{{ pic.alt }}" width="{{ pic.width }}" height="{{ pic.height }}"
+{# ``width``/``height`` override the file's own size when the frame is fixed (see _thumbnail.html). #}
+<img src="{{ pic.url }}" alt="{{ pic.alt }}" width="{{ width|default:pic.width }}" height="{{ height|default:pic.height }}"
      decoding="async"{% if not eager %} loading="lazy"{% endif %}
-     class="{% if pic.is_placeholder %}object-contain{% else %}object-cover{% endif %} {{ class }}" />
+     class="{% if pic.is_placeholder %}object-contain{% else %}{{ fit|default:'object-cover' }}{% endif %} {{ class }}" />

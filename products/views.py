@@ -1,8 +1,10 @@
+from dataclasses import dataclass
+
 from django.contrib import messages
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import ValidationError
 from django.db.models import Count
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils.functional import cached_property
 from django.views import View
@@ -108,26 +110,173 @@ class ManageProductListView(StaffRequiredMixin, ListView):
         return Product.objects.select_related("category")
 
 
-class ManageProductCreateView(StaffRequiredMixin, SuccessMessageMixin, CreateView):
-    """Create a product, then go straight to its Images page to add a picture."""
+@dataclass(frozen=True)
+class ImageChoice:
+    """One image the picker offers as the main image: its radio value and preview."""
 
+    value: str
+    preview: images.Picture
+    label: str
+    token: str = ""  # set for held uploads, which ride along as hidden inputs
+
+
+def image_picker(product, held, main_choice="", errors=()):
+    """Template context for ``_image_picker.html``, on the form and over HTMX alike.
+
+    Offers every image the product will have — its current main image
+    and extras (when editing) and each held upload — as a main-image
+    choice. The submitted choice is kept if it is still on offer.
+    Otherwise the current main image stays checked, or on a product
+    without one, the first new upload.
+    """
+    choices = []
+    if product.pk:
+        if product.image:
+            choices.append(
+                ImageChoice("main", product.card_image, "Current main image")
+            )
+        for extra in product.extra_images.all():
+            choices.append(ImageChoice(f"extra-{extra.pk}", extra.preview, "Gallery"))
+    for item in held:
+        choices.append(
+            ImageChoice(f"held-{item.token}", item.preview, "New", token=item.token)
+        )
+    offered = [choice.value for choice in choices]
+    if main_choice not in offered:
+        main_choice = "main" if "main" in offered else ""
+        if not main_choice and held:
+            main_choice = f"held-{held[0].token}"
+    stage_url = (
+        reverse("products:stage_product_images", kwargs={"pk": product.pk})
+        if product.pk
+        else reverse("products:stage_new_product_images")
+    )
+    return {
+        "image_choices": choices,
+        "has_saved_images": any(not choice.token for choice in choices),
+        "main_choice": main_choice,
+        "upload_errors": list(errors),
+        "stage_url": stage_url,
+        "image_room": images.image_room(product) - len(held),
+    }
+
+
+class StageProductImagesView(StaffRequiredMixin, View):
+    """HTMX: validate and hold the files just chosen; answer with the refreshed picker.
+
+    The Upload button posts here the moment files are chosen, so every
+    image is previewed — and can be picked as the main image, or
+    removed — before the product is saved. The request carries the
+    whole product form, which is how the already-held tokens and the
+    current main-image choice come along. ``discard`` names a held
+    upload to throw away instead.
+    """
+
+    def post(self, request, pk=None):
+        product = (
+            get_object_or_404(
+                Product.objects.select_related("category").prefetch_related(
+                    "extra_images"
+                ),
+                pk=pk,
+            )
+            if pk
+            else Product()
+        )
+        held = images.held_images(request.POST.getlist("held_images"))
+        discard = request.POST.get("discard", "")
+        if discard:
+            images.release_held([discard])
+            held = [item for item in held if item.token != discard]
+        held, problems = images.stage_uploads(
+            product, held, request.FILES.getlist("upload")
+        )
+        return render(
+            request,
+            "products/partials/_image_picker.html",
+            image_picker(product, held, request.POST.get("main_image", ""), problems),
+        )
+
+
+class ProductFormImagesMixin:
+    """The product form's images, shared by create and edit.
+
+    Uploads are staged over HTMX (``StageProductImagesView``) and arrive
+    here as held tokens plus the chosen main image. A form that comes
+    back with errors keeps every held image — and holds any files that
+    were still in the input — so fixing a typo in the price never means
+    choosing the photos again.
+    """
+
+    @cached_property
+    def held(self):
+        return images.held_images(self.request.POST.getlist("held_images"))
+
+    def get_form_kwargs(self):
+        return super().get_form_kwargs() | {"held_count": len(self.held)}
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = context["form"]
+        product = self.object or Product()
+        context |= image_picker(
+            product,
+            kwargs.get("held", self.held),
+            self.request.POST.get("main_image", ""),
+            form.errors.get("upload", []),
+        )
+        return context
+
+    def form_valid(self, form):
+        self.object = form.save()
+        message = self.success_message % {"name": self.object.name}
+        try:
+            added = images.attach_uploads(
+                self.object,
+                self.held,
+                form.accepted_images,
+                form.cleaned_data["main_image"],
+            )
+        except (OSError, ValidationError):
+            messages.error(
+                self.request,
+                f"{message} Its images couldn't be saved, though — add them "
+                "again from its Images page.",
+            )
+            return redirect(self.get_success_url())
+        if added:
+            message += f" {added} image{'s' if added > 1 else ''} added."
+        messages.success(self.request, message)
+        return redirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        held = self.held + images.held_images(
+            images.hold_image(image) for image in form.accepted_images
+        )
+        return self.render_to_response(self.get_context_data(form=form, held=held))
+
+
+class ManageProductCreateView(StaffRequiredMixin, ProductFormImagesMixin, CreateView):
     model = Product
     form_class = ProductForm
     template_name = "products/manage_product_form.html"
-    success_message = "“%(name)s” created. Now give it an image."
+    success_url = reverse_lazy("products:manage_products")
+    success_message = "“%(name)s” created."
     extra_context = {"section": "products"}
 
-    def get_success_url(self):
-        return reverse("products:manage_product_images", kwargs={"pk": self.object.pk})
 
-
-class ManageProductUpdateView(StaffRequiredMixin, SuccessMessageMixin, UpdateView):
+class ManageProductUpdateView(StaffRequiredMixin, ProductFormImagesMixin, UpdateView):
     model = Product
     form_class = ProductForm
     template_name = "products/manage_product_form.html"
     success_url = reverse_lazy("products:manage_products")
     success_message = "“%(name)s” saved."
     extra_context = {"section": "products"}
+
+    def get_queryset(self):
+        return Product.objects.select_related("category").prefetch_related(
+            "extra_images"
+        )
 
 
 class ManageProductDeleteView(StaffRequiredMixin, SuccessMessageMixin, DeleteView):
@@ -281,6 +430,16 @@ class RemoveExtraImageView(ProductImagesMixin, TemplateView):
     def post(self, request, *args, **kwargs):
         images.remove_extra_image(self.extra)
         messages.success(request, f"Extra image removed from “{self.product.name}”.")
+        return self.back_to_images()
+
+
+class MakeMainImageView(ProductImagesMixin, View):
+    """POST-only: promote an extra to main image; the old main joins the gallery."""
+
+    def post(self, request, *args, **kwargs):
+        extra = get_object_or_404(self.product.extra_images, pk=self.kwargs["extra_pk"])
+        images.make_main(extra)
+        messages.success(request, f"Main image changed for “{self.product.name}”.")
         return self.back_to_images()
 
 

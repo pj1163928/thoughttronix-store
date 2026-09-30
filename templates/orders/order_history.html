@@ -29,9 +29,9 @@
               <td>
                 <div class="flex items-center gap-1">
                   {% for item in order.items.all|slice:":4" %}
-                    <span class="block aspect-[4/5] w-8 overflow-hidden rounded bg-base-200" title="{{ item.quantity }} × {{ item.product_name }}">
-                      {% include "products/partials/_picture.html" with pic=item.thumbnail class="h-full w-full" %}
-                    </span>
+                    {% with tooltip=item.quantity|stringformat:"d"|add:" × "|add:item.product_name %}
+                      {% include "products/partials/_thumbnail.html" with pic=item.thumbnail tooltip=tooltip only %}
+                    {% endwith %}
                   {% endfor %}
                   {% if order.items.all|length > 4 %}
                     <span class="text-xs opacity-60">+{{ order.items.all|length|add:-4 }}</span>

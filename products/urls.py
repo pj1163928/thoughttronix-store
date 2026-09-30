@@ -30,6 +30,21 @@ urlpatterns = [
         name="manage_product_delete",
     ),
     path(
+        "backoffice/products/add/stage-images/",
+        views.StageProductImagesView.as_view(),
+        name="stage_new_product_images",
+    ),
+    path(
+        "backoffice/products/<int:pk>/stage-images/",
+        views.StageProductImagesView.as_view(),
+        name="stage_product_images",
+    ),
+    path(
+        "backoffice/products/<int:pk>/images/extras/<int:extra_pk>/make-main/",
+        views.MakeMainImageView.as_view(),
+        name="manage_product_extra_make_main",
+    ),
+    path(
         "backoffice/products/<int:pk>/images/",
         views.ManageProductImagesView.as_view(),
         name="manage_product_images",

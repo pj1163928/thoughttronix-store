@@ -3,11 +3,11 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.urls import reverse
 from django.utils.functional import cached_property
+from django.utils.text import slugify
 
 from .images import (
     PRODUCT_FOLDER,
     Picture,
-    Slide,
     delete_files_on_commit,
     stored_picture,
     thumbnail_size,
@@ -84,7 +84,12 @@ class Product(models.Model):
     """
 
     name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=200, unique=True)
+    slug = models.SlugField(
+        max_length=200,
+        unique=True,
+        blank=True,
+        help_text="The product's web address. Left blank, it's made from the name.",
+    )
     tagline = models.CharField(max_length=200, blank=True)
     description = models.TextField(blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
@@ -118,8 +123,25 @@ class Product(models.Model):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self.unique_slug()
+        super().save(*args, **kwargs)
+
     def get_absolute_url(self):
         return reverse("products:detail", kwargs={"slug": self.slug})
+
+    def unique_slug(self):
+        """A slug made from the name, numbered if taken: ``seraphine``, ``seraphine-2``.
+
+        Only ever called for a product without one, so renaming a product
+        never moves its public URL.
+        """
+        base = slugify(self.name)[:190] or "product"
+        slug, number = base, 2
+        while Product.objects.filter(slug=slug).exclude(pk=self.pk).exists():
+            slug, number = f"{base}-{number}", number + 1
+        return slug
 
     @property
     def image_alt_text(self):
@@ -159,32 +181,33 @@ class Product(models.Model):
         return not self.card_image.is_placeholder
 
     @cached_property
-    def gallery(self):
-        """The product page's slides: the main image first, then each extra.
+    def extra_pictures(self):
+        """The product page's "More images" carousel: each extra's display file.
 
-        An extra whose files are missing is left out rather than shown
-        as a placeholder in the middle of the carousel. Extras without
-        their own alt text are described by position, e.g. "Seraphine —
-        image 2 of 3".
+        The main image is never repeated here — it has the page's primary
+        frame to itself. An extra whose file is missing is left out rather
+        than shown as a placeholder mid-carousel. Extras without their own
+        alt text are described by position, e.g. "Seraphine — image 2 of 3".
         """
         extras = list(self.extra_images.all())
         total = 1 + len(extras)
-        slides = [Slide(self.display_image, self.card_image)]
+        pictures = []
         for position, extra in enumerate(extras, start=2):
             alt = extra.alt_text or f"{self.name} — image {position} of {total}"
-            slide = extra.slide(alt)
-            if slide is not None:
-                slides.append(slide)
-        return slides
+            picture = stored_picture(extra.image, extra.width, extra.height, alt)
+            if picture is not None:
+                pictures.append(picture)
+        return pictures
 
 
 class ProductImage(models.Model):
     """One extra image in a product's gallery — never the main image.
 
-    Extras are shown after ``Product.image`` on the product page and
-    never replace it; removing the main image leaves the placeholder,
-    not the first extra. ``products.images.MAX_EXTRAS`` caps how many
-    one product can have.
+    Extras are shown in their own carousel below ``Product.image`` on the
+    product page. They never replace it on their own: removing the main
+    image leaves the placeholder, not the first extra. An employee can
+    promote one deliberately (``products.images.make_main``).
+    ``products.images.MAX_EXTRAS`` caps how many one product can have.
     """
 
     product = models.ForeignKey(
@@ -202,16 +225,6 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Extra image for {self.product}"
-
-    def slide(self, alt):
-        """This extra as a gallery ``Slide`` — or ``None`` if either file is missing."""
-        display = stored_picture(self.image, self.width, self.height, alt)
-        thumbnail = stored_picture(
-            self.thumbnail, *thumbnail_size(self.width, self.height), alt
-        )
-        if display is None or thumbnail is None:
-            return None
-        return Slide(display, thumbnail)
 
     @cached_property
     def preview(self):

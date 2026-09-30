@@ -42,3 +42,9 @@
   (4:3 SVGs). Product and order images render only through
   `products/partials/_picture.html` from a `Picture`, never from a field;
   see [IMAGES.md](IMAGES.md).
+- Line-item thumbnails (cart, checkout, order history, order detail,
+  confirmation, back-office order detail) all use
+  `products/partials/_thumbnail.html`: one fixed 48×60 frame. The `<img>` is
+  sized itself (attributes plus `h-15 w-12`), never `w-full`/`h-full` of its
+  frame, so a browser-cached stylesheet that lacks the frame's classes still
+  can't render the photo at full size. Include it with `only`.

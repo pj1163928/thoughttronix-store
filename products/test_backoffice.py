@@ -29,7 +29,6 @@ def manage_urls(product, tag):
 def product_data(category, **overrides):
     data = {
         "name": "MindSync Sleep Halo",
-        "slug": "mindsync-sleep-halo",
         "tagline": "Dream in someone else's 4K.",
         "description": "A bedside accessory for the MindSync line.",
         "price": "199.99",
@@ -222,17 +221,48 @@ def test_price_must_be_positive(client, staff_user, category):
     assert not Product.objects.exists()
 
 
-def test_slug_must_be_unique(client, staff_user, product):
+def test_the_form_does_not_ask_for_a_slug(client, staff_user):
     client.force_login(staff_user)
 
-    response = client.post(
+    page = client.get(reverse("products:manage_product_create")).content.decode()
+
+    assert 'name="slug"' not in page
+
+
+def test_the_slug_is_made_from_the_name_and_numbered_if_taken(
+    client, staff_user, product
+):
+    client.force_login(staff_user)
+
+    client.post(
         reverse("products:manage_product_create"),
-        product_data(product.category, slug=product.slug),
+        product_data(product.category, name="Seraphine Home Hub"),
     )
 
-    assert response.status_code == HTTPStatus.OK
-    assert "already exists" in response.content.decode()
-    assert Product.objects.count() == 1
+    assert Product.objects.filter(name="Seraphine Home Hub").count() == 2
+    assert Product.objects.filter(slug="seraphine-home-hub-2").exists()
+
+
+def test_renaming_a_product_keeps_its_web_address(client, staff_user, product):
+    client.force_login(staff_user)
+
+    client.post(
+        reverse("products:manage_product_update", kwargs={"pk": product.pk}),
+        product_data(product.category, name="Seraphine Home Hub II"),
+    )
+
+    product.refresh_from_db()
+    assert product.name == "Seraphine Home Hub II"
+    assert product.slug == "seraphine-home-hub"
+
+
+def test_tags_are_a_checkbox_list(client, staff_user, tag):
+    client.force_login(staff_user)
+
+    page = client.get(reverse("products:manage_product_create")).content.decode()
+
+    assert f'type="checkbox" name="tags" value="{tag.pk}"' in page
+    assert '<select name="tags"' not in page
 
 
 def test_name_is_required(client, staff_user, category):

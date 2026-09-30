@@ -13,17 +13,15 @@
         </h2>
         {% if form.instance.pk %}
           <a href="{% url 'products:manage_product_images' form.instance.pk %}"
-             class="btn btn-ghost btn-sm">Images →</a>
+             class="btn btn-ghost btn-sm">Manage images →</a>
         {% endif %}
       </div>
-      {% if not form.instance.pk %}
-        <p class="text-sm opacity-60">You'll add its images on the next page.</p>
-      {% endif %}
-      <form method="post" class="mt-2 space-y-4">
+      <form method="post" enctype="multipart/form-data" class="mt-2 space-y-4">
         {% csrf_token %}
-        {% for field in form %}
+        {% for field in form.detail_fields %}
           {% include "products/partials/_field.html" %}
         {% endfor %}
+        {% include "products/partials/_image_picker.html" %}
         <div class="mt-2 flex items-center justify-end gap-2">
           <a href="{% url 'products:manage_products' %}" class="btn btn-ghost">Cancel</a>
           <button type="submit" class="btn btn-primary">Save product</button>

@@ -459,28 +459,125 @@ def test_removing_an_extra_deletes_its_files(
     assert stored_files(media_root) == set()
 
 
-def test_the_gallery_puts_the_main_image_first(product_with_image, prepared):
+def test_extra_pictures_hold_only_the_extras(product_with_image, prepared):
     images.add_extra_image(product_with_image, prepared, "The back panel")
     images.add_extra_image(product_with_image, prepared)
 
-    slides = Product.objects.get(pk=product_with_image.pk).gallery
+    product = Product.objects.get(pk=product_with_image.pk)
+    pictures = product.extra_pictures
 
-    assert [slide.display.alt for slide in slides] == [
-        "Seraphine on a shelf",
+    assert [picture.alt for picture in pictures] == [
         "The back panel",
         "Seraphine Home Hub — image 3 of 3",
     ]
+    assert product.display_image.url not in [picture.url for picture in pictures]
 
 
-def test_the_gallery_leaves_out_an_extra_whose_file_is_missing(
+def test_extra_pictures_leave_out_a_missing_file(
     product_with_image, prepared, media_root
 ):
     extra = images.add_extra_image(product_with_image, prepared)
     (media_root / extra.image.name).unlink()
 
-    slides = Product.objects.get(pk=product_with_image.pk).gallery
+    assert Product.objects.get(pk=product_with_image.pk).extra_pictures == []
 
-    assert len(slides) == 1
+
+# --- Choosing the main image ------------------------------------------------------
+
+
+def test_make_main_swaps_an_extra_with_the_main_image(
+    product_with_image, prepared, media_root, django_capture_on_commit_callbacks
+):
+    extra = images.add_extra_image(product_with_image, prepared, "The back panel")
+    old_main = product_with_image.image.name
+    promoted = extra.image.name
+    files_before = stored_files(media_root)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        images.make_main(extra)
+
+    product = Product.objects.get(pk=product_with_image.pk)
+    assert product.image.name == promoted
+    assert product.image_alt == "The back panel"
+    demoted = product.extra_images.get()
+    assert demoted.image.name == old_main
+    assert demoted.alt_text == "Seraphine on a shelf"
+    assert stored_files(media_root) == files_before  # a swap of names, no file touched
+
+
+def test_make_main_without_a_main_image_moves_the_extra_up(
+    product, prepared, media_root, django_capture_on_commit_callbacks
+):
+    extra = images.add_extra_image(product, prepared)
+    display, thumbnail = extra.image.name, extra.thumbnail.name
+
+    with django_capture_on_commit_callbacks(execute=True):
+        images.make_main(extra)
+
+    product = Product.objects.get(pk=product.pk)
+    assert product.image.name == display
+    assert product.image_thumbnail.name == thumbnail
+    assert not product.extra_images.exists()
+    assert stored_files(media_root) == {display, thumbnail}  # the row took no files
+
+
+def test_attach_uploads_honours_a_held_main_choice(product, make_image):
+    # Three shapes, so each image can be recognised by its size.
+    sizes = [(800, 1000), (900, 900), (700, 1000)]
+    tokens = [
+        images.hold_image(images.validate_image(make_image(w, h))) for w, h in sizes
+    ]
+    held_now = images.held_images(tokens)
+
+    added = images.attach_uploads(product, held_now, main_choice=f"held-{tokens[2]}")
+
+    product = Product.objects.get(pk=product.pk)
+    assert added == 3
+    assert (product.image_width, product.image_height) == (700, 1000)
+    assert sorted((e.width, e.height) for e in product.extra_images.all()) == [
+        (800, 1000),
+        (900, 900),
+    ]
+
+
+def test_attach_uploads_can_promote_an_existing_extra(product_with_image, prepared):
+    extra = images.add_extra_image(product_with_image, prepared)
+    promoted = extra.image.name
+
+    images.attach_uploads(product_with_image, [], main_choice=f"extra-{extra.pk}")
+
+    assert Product.objects.get(pk=product_with_image.pk).image.name == promoted
+
+
+def test_attach_uploads_ignores_a_stale_or_forged_choice(product_with_image):
+    main = product_with_image.image.name
+
+    for choice in ("extra-999", "held-" + "0" * 32, "held-../../x", "nonsense"):
+        images.attach_uploads(product_with_image, [], main_choice=choice)
+
+    assert Product.objects.get(pk=product_with_image.pk).image.name == main
+
+
+def test_stage_uploads_holds_the_good_and_explains_the_bad(product, make_image):
+    held_now, problems = images.stage_uploads(
+        product, [], [make_image(), make_image(400, 500, name="tiny.png")]
+    )
+
+    assert len(held_now) == 1
+    assert problems == [
+        "“tiny.png” is 400 × 500 pixels. Images must be at least 600 pixels on "
+        "each side, or they look blurry on the product page — use a larger "
+        "version of the photo."
+    ]
+
+
+def test_stage_uploads_refuses_a_batch_that_does_not_fit(product, make_image):
+    held_now, problems = images.stage_uploads(
+        product, [], [make_image() for _ in range(images.MAX_IMAGES + 1)]
+    )
+
+    assert held_now == []
+    assert problems[0].startswith("You chose 10 images, but there's only room for 9")
 
 
 # --- Order snapshots ------------------------------------------------------------

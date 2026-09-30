@@ -30,6 +30,221 @@ Each entry has this shape:
 
 ---
 
+## 2026-09-30 — One fixed size for cart, checkout and order thumbnails
+
+### Prompts
+
+1. "@HANDOFF.md everything seems to be working correctly but there are some
+   additional stlying implementation changes I would like to make. When I
+   tems are added to cart the image is huge and overlaps the price of the
+   item, the same can be said on the checkout and orders section, can we
+   make the thumbnail images on all of these one specific size and make sure
+   it does not overlap any text"
+2. "These images are still not sized correctly and are overlapping text, can
+   you please make sure these images are one specific size and that they do
+   not overlap or make the text look weird", with three screenshots: the
+   cart, checkout's "Your order" box and the order confirmation, each showing
+   a roughly 600 px photo over the text.
+3. "Ok can you append this conversation to PROMPTS.md with the styling
+   specified there"
+
+### Summary
+
+- **Outcome:** Every line-item thumbnail now renders through one partial,
+  `products/partials/_thumbnail.html`, as a fixed 48×60 (4:5) frame. It is
+  used on the cart, checkout, order history, order detail, confirmation and
+  back-office order detail. Before, each page set its own width (32–56 px).
+  The partial takes `pic`, an optional `href` (the cart links to the
+  product) and `tooltip` (history and confirmation), and is included with
+  `only`, so page context such as a `title` cannot leak in.
+  `products/partials/_picture.html` gained optional `width`/`height`
+  overrides for the `<img>` attributes; the catalog and product page are
+  unchanged. In the cart and checkout the text beside the thumbnail got
+  `min-w-0` so long names wrap next to the image instead of under or over
+  it. `docs/TEMPLATES.md` records the partial and why it is built this way.
+  Result: 431 tests passing, ruff clean, CSS rebuilt. Nothing committed.
+
+- **Deviations:** None from a recommendation. The user chose no size; 48×60
+  was picked to fit four thumbnails in an order-history row, and 64×80 was
+  offered as a one-line change. A dev-mode cache-busting fix for the
+  stylesheet was offered and is unanswered.
+
+- **Sideways:** The first fix did not fix the user's browser, and the cause
+  was misread at first.
+  - **Prompt 1.** A render through the test client, screenshotted with
+    headless Edge, showed thumbnails already the right size before any
+    change. The session guessed a stale cached `tailwind.css`, told the user
+    to press Ctrl+F5, and added the shared partial with `width="48"
+    height="60"` on the `<img>` as a fallback. It checked that fallback only
+    with *no* stylesheet at all, which is not the failure the user had.
+  - **Prompt 2.** The user's screenshots showed the photos still at full
+    size. Logging in to the live dev server with curl proved it was serving
+    the new markup and a current stylesheet, so the browser's cached CSS was
+    confirmed as the cause: the tag links a plain `/static/css/tailwind.css`
+    with no version in `DEBUG`. That old copy had `w-full`/`h-full` but not
+    the frame's `w-12`/`h-15`, so `w-full` of an unsized frame resolved to
+    the photo's natural 600 px and overrode the width attribute. The fix
+    sizes the `<img>` itself (`h-15 w-12 max-w-none`) instead of as a
+    percentage of its frame. It was verified against a copy of the
+    stylesheet with those rules deleted, which reproduces the user's state.
+  - **Side effects.** The render script added products to the demo
+    `customer` account's cart on every run, leaving 13 items in the dev
+    database; the user was told `seed` resets it. Several stale `runserver`
+    and `tailwind watch` processes from earlier sessions were found running,
+    only one of them serving port 8000.
+
+---
+
+## 2026-09-30 — Product images: the build, then two rounds of back-office and gallery changes
+
+### Prompts
+
+1. "@HANDOFF.md Implement this feature"
+2. "Code only (Recommended)" — the answer to the question `HANDOFF.md` said
+   to ask first: whether to write `prd/product-images.md` and
+   `plans/product-images.md` before coding.
+3. "Ok now that you have implemented the features how can I manually review
+   and test the code that you generated?"
+4. "Ok I have some problems when I try to adda product, firstly I dont know
+   what "slug" is, I would simply like to have the image uploaded using a
+   simple upload button and if more than one image is added show it as a
+   gallery as discussed before. Next the tags section looks off with all of
+   the text being scrunched togehter can be make this a simle list view where
+   I can select by using checkboxes for which tags I would like to add"
+5. "Ok there are a few things I would like to change first of all cn we make
+   the upload images instead of having it say Choose make it an upload button
+   and specify that to set a main image first add all images, then on the
+   product options have the option for the user to actually select the main
+   image after they have all loaded and are able to be previewed. The next
+   thing I notice that needed to be changed is the way the images are listed
+   on the given product pages. Right now it has the images loaded twice, it
+   merges the main and secondary images into the primary image rather than
+   just using the main image only. Also there does not seem to be any
+   scrollable carousel for viewing the secondary images just a line of
+   images"
+6. "Ok can you append this conversation to PROMPTS.md using the styling
+   provided on PROMPTS.md"
+
+### Summary
+
+- **Outcome:** The design in `HANDOFF.md` was built as agreed, then reshaped
+  twice by the user's own testing.
+
+  *The build (prompts 1–2).* `products/images.py` became the third deep
+  module. It holds one validator with the seven rules, each refusal naming
+  the file and the values it found. It also holds the pipeline (resize to
+  display and thumbnail WebPs in memory, write under random names, save in a
+  transaction, delete old files on commit), the extras' ordering, and
+  `snapshot_for_order`. `Product` gained the main image fields,
+  `ProductImage` holds up to eight extras, and `OrderItem` gained a snapshot.
+  Templates only ever render a `Picture` through
+  `products/partials/_picture.html`. `card_image`, `display_image` and
+  `OrderItem.thumbnail` return the media URL only when the file exists, and
+  the category placeholder otherwise. `place_order` copies thumbnails in
+  `on_commit(robust=True)`, so a failed copy cannot fail or roll back an
+  order. Other pieces:
+  - a staff-only Images page;
+  - read-only previews in the Django admin;
+  - `SERVE_MEDIA` independent of `DEBUG`, and `MEDIA_ROOT`, both in
+    `.env.example`;
+  - a temporary `MEDIA_ROOT` for every test;
+  - thumbnails on the cart, checkout and all order pages, loaded without
+    N+1 queries via `Order.objects.with_items()`.
+
+  The 13 baseline photos moved to `products/seed_images/` under slug names,
+  with written alt text, and `product-images/` was deleted after a checksum
+  comparison. The seeded catalog went from 27 MB of PNGs to about 4 MB of
+  WebPs, and reseeding leaves no stray files. `CLAUDE.md` now says "three"
+  deep modules, and `docs/IMAGES.md` was added. Result: 401 tests (86 new),
+  ruff clean, and the catalog and carousel checked by headless-Edge
+  screenshot.
+
+  *Prompt 3* changed no code. It produced a manual review and test script: a
+  file-by-file reading order, a browser walkthrough for each login, a Python
+  snippet that generates one bad file per validation rule with the expected
+  message for each, and steps for the missing-file, product-deletion and
+  `DEBUG=False` checks.
+
+  *Prompt 4.* `Product.save` now generates the slug from the name, numbered
+  if taken (`seraphine-2`), and never changes it on rename. The field left
+  the form and became `blank=True` (migration `0005`). The product form
+  gained a multi-file upload: the first file fills the main image and the
+  rest become extras. Tags became a checkbox list, one choice per row. To
+  keep the brief's "never accept a file and then lose it" once uploads sat on
+  a form with other fields, images that pass validation are *held* under
+  `media/pending/` and carried as hidden tokens while the employee fixes
+  other errors. Stale holds are swept after a day. Result: 412 tests.
+
+  *Prompt 5.* The upload became an **⬆ Upload images** button that sends
+  files over HTMX to `StageProductImagesView` the moment they are chosen.
+  That view returns `_image_picker.html`: a preview per image, a "main image"
+  radio button, and a ✕ to discard. On the edit form the product's saved
+  images are choices too. `attach_uploads` applies the choice through a new
+  `make_main`, which swaps stored names rather than files, and the Images
+  page gained a "Make main image" button. The product page now shows the
+  main image once, with the extras in their own "More images" carousel with
+  wrapping ❮ ❯ arrows and a counter. The old thumbnail row, which repeated
+  the main image, is gone. Result: 431 tests passing, ruff clean. Nothing
+  has been committed.
+
+- **Deviations:** Prompt 2 took the recommended option. Prompts 4 and 5
+  reversed three settled decisions from the design interview, each at the
+  user's request:
+  - **Uploads on the product form.** The interview had put uploads on a
+    separate Images page, so that an error elsewhere on a form could never
+    discard a chosen file. Uploads now sit on the product form, and holding
+    accepted images is what preserves that guarantee. The Images page stays
+    for managing saved images.
+  - **Promoting an extra to main.** "No promote extra to main" became
+    allowed, but only by an explicit choice; removing the main image still
+    leaves the placeholder, not the first extra.
+  - **The gallery.** The Q10 layout (main image first in the carousel, plus
+    a thumbnail row) became main-image-only with a separate extras
+    carousel.
+
+  "Create product redirects to the Images page" was also dropped once images
+  could be added on the form itself. Two things were offered and are still
+  unanswered: making the category and tag slugs automatic as well, and
+  replacing the anchor-link carousel if its page nudge on arrow clicks
+  bothers the user. `HANDOFF.md` asked the build session to write an entry
+  here. It was declined, because this file's own rule allows entries only
+  when the user asks. This entry is the one that prompt asked for.
+
+- **Sideways:** Several defects were caught during the work, most of them by
+  tests:
+  - **PNG decoding before the size checks.** A new megapixel test failed
+    with "image file is truncated", which exposed a real hole. On a PNG,
+    Pillow's `getexif()` decodes every pixel, and it ran *before* the
+    decompression-bomb check. Orientation is now read from the header chunks
+    only.
+  - **A partial as an on-commit callback.** A test of a crashing snapshot
+    step showed that Django's `robust=True` error logging reads
+    `func.__qualname__`, which `functools.partial` lacks. A failed snapshot
+    would have crashed the logger itself. It is now a lambda, and
+    `docs/IMAGES.md` records why.
+  - **An import ruff removed.** `ruff --fix` dropped `reverse` from
+    `products/views.py` when it was briefly unused. It was needed again in
+    prompt 5, and 19 tests failed with `NameError` until it was restored.
+  - **Tags still inline.** The first tag fix still rendered inline, because
+    DaisyUI's `.label` is `inline-flex`. A screenshot caught it, not a test.
+  - **Bad tests.** Two tests written in prompt 5 were vacuous: one assertion
+    ended in `or True`, and one compared against a field `make_main` had
+    already blanked. Two others depended on exact whitespace. All four were
+    rewritten before the run, with a regex helper for the checked radio.
+  - **Smaller slips.** A test missed that Django escapes apostrophes in
+    messages. The media URL pattern first had a leading slash (Django warning
+    `urls.W002`). A race in `move_extra` (an extra deleted mid-move raising
+    `StopIteration`) was found on self-review and closed.
+
+  Visual checking was limited. Headless Edge could not sign in, so the
+  back-office screens were rendered through Django's test client with
+  asset URLs pointed at a running dev server. Three blank or half-scrolled
+  captures turned out to be lazy loading and smooth-scroll timing, not bugs,
+  confirmed by checking every image URL returned 200 and re-shooting the
+  public page live. The HTMX upload and the carousel arrows have therefore
+  not been clicked in a real browser. `/security-review` and `/code-review`
+  were recommended and not run.
+
 ## 2026-09-30 — Product images: the design interview and the handoff
 
 ### Prompts

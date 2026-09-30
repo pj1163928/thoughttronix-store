@@ -33,9 +33,12 @@ from __future__ import annotations
 import io
 import logging
 import os
+import re
 import uuid
 import warnings
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, BinaryIO, Literal
 
@@ -45,6 +48,7 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import Max
 from django.templatetags.static import static
+from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 if TYPE_CHECKING:
@@ -106,14 +110,6 @@ class Picture:
         """A category placeholder illustration, served as a static file."""
         width, height = PLACEHOLDER_SIZE
         return cls(static(static_path), width, height, alt, is_placeholder=True)
-
-
-@dataclass(frozen=True)
-class Slide:
-    """One image in the product page's gallery: the large view and its thumbnail."""
-
-    display: Picture
-    thumbnail: Picture
 
 
 @dataclass(frozen=True)
@@ -477,7 +473,7 @@ def remove_main_image(product: Product) -> bool:
 
 def _forget_pictures(product: Product) -> None:
     """Drop the instance's cached ``Picture``s so they reflect the new image."""
-    for name in ("card_image", "display_image", "gallery"):
+    for name in ("card_image", "display_image", "extra_pictures"):
         product.__dict__.pop(name, None)
 
 
@@ -526,6 +522,48 @@ def remove_extra_image(extra: ProductImage) -> None:
     extra.delete()
 
 
+EXTRA_IMAGE_FIELDS = ["image", "thumbnail", "width", "height", "alt_text"]
+
+
+def make_main(extra: ProductImage) -> None:
+    """Promote an extra to main image; the old main takes the extra's place.
+
+    A swap of stored names, not of files: nothing is copied, written or
+    deleted, so it cannot half-succeed. With no main image to swap back,
+    the extra simply moves up and its row goes.
+    """
+    product = extra.product
+    promoted = [
+        extra.image.name,
+        extra.thumbnail.name,
+        extra.width,
+        extra.height,
+        extra.alt_text,
+    ]
+    with transaction.atomic():
+        if product.image:
+            extra.image = product.image.name
+            extra.thumbnail = product.image_thumbnail.name
+            extra.width = product.image_width
+            extra.height = product.image_height
+            extra.alt_text = product.image_alt
+            extra.save(update_fields=EXTRA_IMAGE_FIELDS)
+        else:
+            # Blank the instance first: its post_delete receiver deletes
+            # whatever files it names, and these now belong to the product.
+            extra.image = extra.thumbnail = ""
+            extra.delete()
+        (
+            product.image,
+            product.image_thumbnail,
+            product.image_width,
+            product.image_height,
+            product.image_alt,
+        ) = promoted
+        product.save(update_fields=MAIN_IMAGE_FIELDS)
+    _forget_pictures(product)
+
+
 def move_extra(extra: ProductImage, direction: Literal["up", "down"]) -> bool:
     """Swap an extra with its neighbour; ``up`` moves it earlier in the gallery.
 
@@ -549,6 +587,216 @@ def move_extra(extra: ProductImage, direction: Literal["up", "down"]) -> bool:
                 other.sort_order = position
                 other.save(update_fields=["sort_order"])
     return True
+
+
+# --- Several at once, from the product form -------------------------------------------
+#
+# The product form's Upload button sends the chosen files straight away
+# (over HTMX) to be validated and *held* — stored under pending/ and
+# carried in the form as hidden tokens — so the employee sees every
+# image previewed before anything is saved, and picks the main one from
+# those previews. Holding is also what keeps a mistyped price from
+# costing anyone their photos: browsers empty a file input whenever a
+# form comes back with errors, but a held image is already on the server.
+#
+# The main-image choice is a string: "main" (keep the current one),
+# "extra-<pk>" (promote an existing extra) or "held-<token>".
+
+MAX_IMAGES = 1 + MAX_EXTRAS
+PENDING_FOLDER = "pending"
+HOLD_LIFETIME = timedelta(days=1)
+HOLD_TOKEN = re.compile(r"[0-9a-f]{32}")
+
+
+@dataclass(frozen=True)
+class HeldImage:
+    """An accepted upload waiting for its form to be corrected."""
+
+    token: str
+    preview: Picture
+
+
+def image_room(product: Product) -> int:
+    """How many more images ``product`` can take: the main slot if empty, plus free extras."""
+    if product.pk is None:
+        return MAX_IMAGES
+    main = 0 if product.image else 1
+    return main + MAX_EXTRAS - product.extra_images.count()
+
+
+def too_many_message(chosen: int, room: int) -> str:
+    """The sentence shown when more images are chosen than the product has room for."""
+    return (
+        f"You chose {chosen} images, but there's only room for {room} more — a "
+        f"product can have {MAX_IMAGES} (one main image and {MAX_EXTRAS} extras). "
+        "Choose fewer and try again."
+    )
+
+
+def add_images(
+    product: Product, prepared: Sequence[PreparedImage]
+) -> list[ProductImage | None]:
+    """Add images in order: the main image first if it has none, then extras.
+
+    Stops quietly at the limit (the form has already refused more than
+    fit). Returns where each added image went: ``None`` for the main
+    image, else its ``ProductImage``.
+    """
+    placed: list[ProductImage | None] = []
+    for image in prepared:
+        if not product.image:
+            set_main_image(product, image)
+            placed.append(None)
+        elif product.extra_images.count() < MAX_EXTRAS:
+            placed.append(add_extra_image(product, image))
+        else:
+            break
+    return placed
+
+
+def stage_uploads(
+    product: Product, held: Sequence[HeldImage], files: Sequence[BinaryIO]
+) -> tuple[list[HeldImage], list[str]]:
+    """Validate and hold freshly chosen files so they can be previewed.
+
+    Returns the held images (those already held, then the new ones that
+    passed) and one plain-language message per file that didn't. A batch
+    larger than the product's remaining room is refused whole.
+    """
+    room = image_room(product) - len(held)
+    if len(files) > room:
+        return list(held), [too_many_message(len(files), room)]
+    tokens, problems = [item.token for item in held], []
+    for file in files:
+        try:
+            tokens.append(hold_image(validate_image(file)))
+        except ValidationError as problem:
+            problems.extend(problem.messages)
+    return held_images(tokens), problems
+
+
+def release_held(tokens: Iterable[str]) -> None:
+    """Throw away held images the employee removed before saving."""
+    for token in tokens:
+        if HOLD_TOKEN.fullmatch(token):
+            _delete_now(list(_held_names(token)))
+
+
+def hold_image(image: PreparedImage) -> str:
+    """Park an accepted upload under ``pending/``; return the token that finds it again.
+
+    Holds older than ``HOLD_LIFETIME`` — forms that were abandoned — are
+    swept whenever a new one is made.
+    """
+    _purge_stale_holds()
+    token = uuid.uuid4().hex
+    display, thumbnail = _held_names(token)
+    default_storage.save(display, ContentFile(image.display))
+    default_storage.save(thumbnail, ContentFile(image.thumbnail))
+    return token
+
+
+def held_images(tokens: Iterable[str]) -> list[HeldImage]:
+    """The images still held under ``tokens``, in order.
+
+    Tokens arrive from a POST, so they are untrusted: anything that isn't
+    a well-formed token for a file that still exists is dropped, as are
+    duplicates.
+    """
+    held, seen = [], set()
+    for token in tokens:
+        if not HOLD_TOKEN.fullmatch(token) or token in seen:
+            continue
+        seen.add(token)
+        display, thumbnail = _held_names(token)
+        try:
+            if not (
+                default_storage.exists(display) and default_storage.exists(thumbnail)
+            ):
+                continue
+            with default_storage.open(display, "rb") as file:
+                width, height = Image.open(file).size
+        except Exception:
+            logger.warning("Could not read held image %s", token, exc_info=True)
+            continue
+        preview = Picture(
+            default_storage.url(thumbnail),
+            *thumbnail_size(width, height),
+            "An image waiting to be saved",
+        )
+        held.append(HeldImage(token, preview))
+    return held
+
+
+def attach_uploads(
+    product: Product,
+    held: Sequence[HeldImage],
+    new: Sequence[PreparedImage] = (),
+    main_choice: str = "",
+) -> int:
+    """Give a saved product its held and new images, then honour the main choice.
+
+    Images are added in order (the first fills an empty main slot); then
+    whichever image ``main_choice`` names is promoted with ``make_main``,
+    the displaced main image joining the gallery in its place. An unknown
+    or stale choice changes nothing. Held files are released afterwards
+    whatever happens. Returns how many images were added; storage errors
+    propagate.
+    """
+    try:
+        loaded = [(item.token, _read_held(item.token)) for item in held]
+        loaded = [(token, image) for token, image in loaded if image]
+        placed = add_images(product, [image for _, image in loaded] + list(new))
+    finally:
+        release_held(item.token for item in held)
+
+    chosen = None
+    kind, _, key = main_choice.partition("-")
+    if kind == "held":
+        tokens = [token for token, _ in loaded]
+        if key in tokens and tokens.index(key) < len(placed):
+            chosen = placed[tokens.index(key)]
+    elif kind == "extra" and key.isdigit():
+        chosen = product.extra_images.filter(pk=key).first()
+    if chosen is not None:
+        make_main(chosen)
+    return len(placed)
+
+
+def _held_names(token: str) -> tuple[str, str]:
+    return (
+        f"{PENDING_FOLDER}/{token}.webp",
+        f"{PENDING_FOLDER}/{token}-thumb.webp",
+    )
+
+
+def _read_held(token: str) -> PreparedImage | None:
+    display_name, thumbnail_name = _held_names(token)
+    try:
+        with default_storage.open(display_name, "rb") as file:
+            display = file.read()
+        with default_storage.open(thumbnail_name, "rb") as file:
+            thumbnail = file.read()
+        width, height = Image.open(io.BytesIO(display)).size
+    except Exception:
+        logger.warning("Could not read held image %s", token, exc_info=True)
+        return None
+    return PreparedImage(display, thumbnail, width, height)
+
+
+def _purge_stale_holds() -> None:
+    cutoff = timezone.now() - HOLD_LIFETIME
+    try:
+        _, files = default_storage.listdir(PENDING_FOLDER)
+    except (FileNotFoundError, NotImplementedError):
+        return
+    for name in files:
+        path = f"{PENDING_FOLDER}/{name}"
+        try:
+            if default_storage.get_modified_time(path) < cutoff:
+                default_storage.delete(path)
+        except Exception:
+            logger.warning("Could not sweep held image %r", path, exc_info=True)
 
 
 # --- Order snapshots -------------------------------------------------------------------

@@ -109,11 +109,9 @@
           <ul class="space-y-2">
             {% for item in cart.lines %}
               <li class="flex items-center justify-between gap-4 text-sm">
-                <span class="flex items-center gap-3">
-                  <span class="block aspect-[4/5] w-10 shrink-0 overflow-hidden rounded bg-base-200">
-                    {% include "products/partials/_picture.html" with pic=item.product.card_image class="h-full w-full" %}
-                  </span>
-                  <span>{{ item.quantity }} × {{ item.product.name }}</span>
+                <span class="flex min-w-0 items-center gap-3">
+                  {% include "products/partials/_thumbnail.html" with pic=item.product.card_image only %}
+                  <span class="min-w-0">{{ item.quantity }} × {{ item.product.name }}</span>
                 </span>
                 <span class="whitespace-nowrap">${{ item.line_total|intcomma }}</span>
               </li>

@@ -1,0 +1,70 @@
+{# The product form's images. The Upload button sends the chosen files at once (HTMX) to be checked and held, #}
+{# and this whole block comes back with a preview of every image and a radio to choose the main one. #}
+{# Swapping the block is also what empties the file input, so nothing is sent twice. #}
+<div id="image-picker" class="space-y-3">
+  <div>
+    <p class="label mb-1">Images</p>
+    <p class="text-sm opacity-80">
+      Add all of the product's images first, then choose which one is the main image.
+      The others appear in a carousel on the product page.
+    </p>
+    <p class="mt-1 text-xs opacity-60">
+      JPEG, PNG or WebP · at least 600 pixels on each side · up to 10 MB each ·
+      room for {{ image_room }} more
+    </p>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-3">
+    <label class="btn btn-primary btn-outline{% if image_room <= 0 %} btn-disabled{% endif %}">
+      ⬆ Upload images
+      <input type="file" name="upload" multiple accept="image/jpeg,image/png,image/webp" class="hidden"
+             hx-post="{{ stage_url }}" hx-trigger="change" hx-encoding="multipart/form-data"
+             hx-target="#image-picker" hx-swap="outerHTML" hx-indicator="#image-picker-loading"
+             {% if image_room <= 0 %}disabled{% endif %} />
+    </label>
+    <span id="image-picker-loading" class="htmx-indicator flex items-center gap-2 text-sm opacity-70">
+      <span class="loading loading-spinner loading-sm"></span> Checking images…
+    </span>
+  </div>
+
+  {% for error in upload_errors %}
+    <p class="text-sm text-error">{{ error }}</p>
+  {% endfor %}
+
+  {% if image_choices %}
+    <fieldset>
+      <legend class="mb-2 text-sm">
+        <span class="font-semibold">Choose the main image</span>
+        <span class="opacity-60">— shown on the catalog card and at the top of the product page.</span>
+      </legend>
+      <div class="grid grid-cols-3 gap-3 sm:grid-cols-4">
+        {% for choice in image_choices %}
+          <div class="relative">
+            <label class="block cursor-pointer rounded-box border-2 border-base-300 p-1 has-[:checked]:border-primary">
+              <span class="block aspect-[4/5] overflow-hidden rounded bg-base-200">
+                {% include "products/partials/_picture.html" with pic=choice.preview class="h-full w-full" eager=True %}
+              </span>
+              <span class="mt-1 flex items-center gap-2 px-1 text-xs">
+                <input type="radio" name="main_image" value="{{ choice.value }}"
+                       class="radio radio-primary radio-xs"
+                       {% if choice.value == main_choice %}checked{% endif %} />
+                {{ choice.label }}
+              </span>
+            </label>
+            {% if choice.token %}
+              <input type="hidden" name="held_images" value="{{ choice.token }}" />
+              <button type="button" name="discard" value="{{ choice.token }}"
+                      hx-post="{{ stage_url }}" hx-target="#image-picker" hx-swap="outerHTML"
+                      class="btn btn-circle btn-xs absolute right-2 top-2"
+                      aria-label="Remove this image">✕</button>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+      <p class="mt-2 text-xs opacity-60">
+        New images are saved when you save the product.
+        {% if has_saved_images %}To remove or reorder images already saved, use Manage images.{% endif %}
+      </p>
+    </fieldset>
+  {% endif %}
+</div>

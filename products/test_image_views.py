@@ -1,5 +1,8 @@
 """The Images page, the storefront's pictures, the admin, and media serving."""
 
+import os
+import re
+import time
 from http import HTTPStatus
 
 import pytest
@@ -59,6 +62,11 @@ def action_urls(product, extra):
             "products:manage_product_extra_move",
             kwargs={"pk": product.pk, "extra_pk": extra.pk},
         ),
+        reverse(
+            "products:manage_product_extra_make_main",
+            kwargs={"pk": product.pk, "extra_pk": extra.pk},
+        ),
+        reverse("products:stage_product_images", kwargs={"pk": product.pk}),
     ]
 
 
@@ -295,18 +303,285 @@ def test_staff_can_remove_an_extra_after_confirming(staff_client, extra):
 # --- The rest of the back office ----------------------------------------------------
 
 
-def test_creating_a_product_leads_to_its_images_page(staff_client, category):
-    response = staff_client.post(
-        reverse("products:manage_product_create"),
-        {
-            "name": "Thought Lamp",
-            "slug": "thought-lamp",
-            "price": "49.00",
-            "category": str(category.pk),
-        },
+def new_product(category, **extra):
+    return {"name": "Thought Lamp", "price": "49.00", "category": category.pk} | extra
+
+
+def create(staff_client, data, **kwargs):
+    return staff_client.post(reverse("products:manage_product_create"), data, **kwargs)
+
+
+def held_tokens(html):
+    return re.findall(r'name="held_images" value="([0-9a-f]{32})"', html)
+
+
+def checked_choices(html):
+    """The values of the main-image radios rendered as checked."""
+    return re.findall(
+        r'name="main_image" value="([^"]+)"\s+class="[^"]*"\s+checked', html
     )
 
-    assert response.url == images_url(Product.objects.get(slug="thought-lamp"))
+
+def stage(staff_client, files, product=None, **data):
+    url = (
+        reverse("products:stage_product_images", kwargs={"pk": product.pk})
+        if product
+        else reverse("products:stage_new_product_images")
+    )
+    return staff_client.post(url, {"upload": files} | data).content.decode()
+
+
+def test_the_form_offers_an_upload_button_and_explains_the_main_image(
+    staff_client,
+):
+    page = staff_client.get(reverse("products:manage_product_create")).content.decode()
+
+    assert "Upload images" in page
+    assert "then choose which one is the main image" in page
+    assert f'hx-post="{reverse("products:stage_new_product_images")}"' in page
+
+
+def test_staging_previews_each_upload_with_a_main_image_choice(
+    staff_client, make_image
+):
+    html = stage(staff_client, [make_image(), make_image()])
+
+    tokens = held_tokens(html)
+    assert len(tokens) == 2
+    assert 'id="image-picker"' in html
+    assert "<html" not in html  # a partial, not a page
+    assert html.count('name="main_image"') == 2
+    assert checked_choices(html) == [
+        f"held-{tokens[0]}"
+    ]  # first is main unless changed
+
+
+def test_staging_explains_a_bad_file_and_keeps_the_good_one(staff_client, make_image):
+    html = stage(staff_client, [make_image(), make_image(400, 500, name="tiny.png")])
+
+    assert "“tiny.png” is 400 × 500 pixels" in html
+    assert len(held_tokens(html)) == 1
+
+
+def test_staging_keeps_earlier_uploads_and_the_chosen_main(staff_client, make_image):
+    first = held_tokens(stage(staff_client, [make_image()]))[0]
+
+    html = stage(
+        staff_client,
+        [make_image()],
+        held_images=[first],
+        main_image=f"held-{first}",
+    )
+
+    tokens = held_tokens(html)
+    assert tokens[0] == first
+    assert len(tokens) == 2
+    assert checked_choices(html) == [f"held-{first}"]
+
+
+def test_staging_keeps_a_later_upload_chosen_as_main(staff_client, make_image):
+    first, second = held_tokens(stage(staff_client, [make_image(), make_image()]))
+
+    html = stage(
+        staff_client, [], held_images=[first, second], main_image=f"held-{second}"
+    )
+
+    assert checked_choices(html) == [f"held-{second}"]
+
+
+def test_staging_can_discard_an_upload(staff_client, make_image, media_root):
+    first, second = held_tokens(stage(staff_client, [make_image(), make_image()]))
+
+    html = stage(staff_client, [], held_images=[first, second], discard=first)
+
+    assert held_tokens(html) == [second]
+    assert not list((media_root / images.PENDING_FOLDER).glob(f"{first}*"))
+
+
+def test_staging_is_staff_only(client, customer, make_image):
+    url = reverse("products:stage_new_product_images")
+    assert client.post(url).status_code == HTTPStatus.FOUND
+
+    client.force_login(customer)
+    assert client.post(url, {"upload": [make_image()]}).status_code == (
+        HTTPStatus.FORBIDDEN
+    )
+
+
+def test_saving_uses_the_chosen_main_image(staff_client, category, make_image):
+    sizes = [(800, 1000), (900, 900), (700, 1000)]
+    tokens = held_tokens(stage(staff_client, [make_image(w, h) for w, h in sizes]))
+
+    response = create(
+        staff_client,
+        new_product(category, held_images=tokens, main_image=f"held-{tokens[1]}"),
+        follow=True,
+    )
+
+    lamp = Product.objects.get(slug="thought-lamp")
+    assert (lamp.image_width, lamp.image_height) == (900, 900)
+    assert lamp.extra_images.count() == 2
+    assert "“Thought Lamp” created. 3 images added." in response.content.decode()
+    assert response.redirect_chain[-1][0] == reverse("products:manage_products")
+
+
+def test_without_a_choice_the_first_upload_is_main(staff_client, category, make_image):
+    tokens = held_tokens(
+        stage(staff_client, [make_image(800, 1000), make_image(900, 900)])
+    )
+
+    create(staff_client, new_product(category, held_images=tokens))
+
+    lamp = Product.objects.get(slug="thought-lamp")
+    assert (lamp.image_width, lamp.image_height) == (800, 1000)
+
+
+def test_files_still_in_the_input_at_save_are_not_lost(
+    staff_client, category, make_image
+):
+    """If Save is pressed before the upload finished, the form takes the files itself."""
+    create(staff_client, new_product(category, upload=[make_image()]))
+
+    assert Product.objects.get(slug="thought-lamp").has_image
+
+
+def test_images_are_optional(staff_client, category):
+    create(staff_client, new_product(category))
+
+    assert not Product.objects.get(slug="thought-lamp").has_image
+
+
+def test_a_bad_file_in_the_input_is_explained_and_nothing_is_created(
+    staff_client, category, make_image
+):
+    response = create(
+        staff_client,
+        new_product(
+            category, upload=[make_image(), make_image(400, 500, name="tiny.png")]
+        ),
+    )
+
+    page = response.content.decode()
+    assert response.status_code == HTTPStatus.OK
+    assert "“tiny.png” is 400 × 500 pixels" in page
+    assert len(held_tokens(page)) == 1  # the good one is held, not lost
+    assert not Product.objects.exists()
+
+
+def test_accepted_images_survive_a_mistake_elsewhere_on_the_form(
+    staff_client, category, make_image, media_root
+):
+    """The brief's rule: never accept a file and then lose it."""
+    tokens = held_tokens(stage(staff_client, [make_image()]))
+    first = create(
+        staff_client,
+        new_product(category, price="-5", held_images=tokens, upload=[make_image()]),
+    )
+    page = first.content.decode()
+    tokens = held_tokens(page)
+    assert len(tokens) == 2  # the staged one, and the one still in the input
+    assert not Product.objects.exists()
+
+    create(staff_client, new_product(category, held_images=tokens))
+
+    lamp = Product.objects.get(slug="thought-lamp")
+    assert lamp.has_image
+    assert lamp.extra_images.count() == 1
+    assert not list((media_root / images.PENDING_FOLDER).iterdir())  # released
+
+
+def test_forged_held_tokens_are_ignored(staff_client, category):
+    create(
+        staff_client,
+        new_product(category, held_images=["../../config/settings", "0" * 32]),
+    )
+
+    assert not Product.objects.get(slug="thought-lamp").has_image
+
+
+def test_too_many_images_are_refused_with_the_limit(staff_client, category, make_image):
+    response = create(
+        staff_client,
+        new_product(
+            category, upload=[make_image() for _ in range(images.MAX_IMAGES + 1)]
+        ),
+    )
+
+    assert "You chose 10 images, but there" in response.content.decode()
+    assert not Product.objects.exists()
+
+
+def edit(staff_client, product, **data):
+    return staff_client.post(
+        reverse("products:manage_product_update", kwargs={"pk": product.pk}),
+        {
+            "name": product.name,
+            "price": "349.99",
+            "category": product.category_id,
+        }
+        | data,
+    )
+
+
+def test_the_edit_form_offers_saved_images_as_main_choices(staff_client, extra):
+    page = staff_client.get(
+        reverse("products:manage_product_update", kwargs={"pk": extra.product_id})
+    ).content.decode()
+
+    assert "Current main image" in page
+    assert f'value="extra-{extra.pk}"' in page
+    assert checked_choices(page) == ["main"]
+
+
+def test_editing_adds_images_to_the_gallery(
+    staff_client, product_with_image, make_image
+):
+    tokens = held_tokens(
+        stage(staff_client, [make_image()], product=product_with_image)
+    )
+
+    edit(staff_client, product_with_image, held_images=tokens, main_image="main")
+
+    product = Product.objects.get(pk=product_with_image.pk)
+    assert product.image.name == product_with_image.image.name  # main untouched
+    assert product.extra_images.count() == 1
+
+
+def test_editing_can_make_a_saved_extra_the_main_image(staff_client, extra):
+    promoted = extra.image.name
+
+    edit(staff_client, extra.product, main_image=f"extra-{extra.pk}")
+
+    product = Product.objects.get(pk=extra.product_id)
+    assert product.image.name == promoted
+    assert product.extra_images.count() == 1  # the old main joined the gallery
+
+
+def test_the_images_page_can_make_an_extra_the_main_image(staff_client, extra):
+    promoted = extra.image.name
+
+    response = staff_client.post(
+        reverse(
+            "products:manage_product_extra_make_main",
+            kwargs={"pk": extra.product_id, "extra_pk": extra.pk},
+        ),
+        follow=True,
+    )
+
+    assert "Main image changed" in response.content.decode()
+    assert Product.objects.get(pk=extra.product_id).image.name == promoted
+
+
+def test_stale_holds_are_swept(prepared, media_root):
+    old = images.hold_image(prepared)
+    long_ago = time.time() - 2 * 24 * 60 * 60
+    for path in (media_root / images.PENDING_FOLDER).glob(f"{old}*"):
+        os.utime(path, (long_ago, long_ago))
+
+    fresh = images.hold_image(prepared)
+
+    assert images.held_images([old, fresh])[0].token == fresh
+    assert len(images.held_images([old, fresh])) == 1
 
 
 def test_the_product_list_shows_thumbnails_and_no_image_badges(
@@ -355,14 +630,32 @@ def test_detail_shows_the_full_image_eagerly_without_a_carousel(
     assert "carousel" not in page
 
 
-def test_detail_shows_a_carousel_when_there_are_extras(client, extra):
-    page = client.get(extra.product.get_absolute_url()).content.decode()
+def test_detail_shows_the_main_image_once_and_extras_in_their_own_carousel(
+    client, extra
+):
+    product = Product.objects.get(pk=extra.product_id)
 
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert page.count(f"/media/{product.image.name}") == 1  # never repeated
+    assert page.count("/media/products/") == 2  # main + one extra, no thumbnails
+    assert "More images" in page
     assert 'class="carousel' in page
-    assert 'href="#image-1"' in page
-    assert 'href="#image-2"' in page
     assert f"/media/{extra.image.name}" in page
     assert 'alt="The back panel"' in page
+    assert "Next image" not in page  # one extra: nothing to scroll to
+
+
+def test_the_extras_carousel_has_wrapping_arrows(client, extra, prepared):
+    images.add_extra_image(extra.product, prepared)
+
+    page = client.get(extra.product.get_absolute_url()).content.decode()
+
+    assert page.count('aria-label="Next image"') == 2
+    # Slide 1's arrows both lead to slide 2, and slide 2's both wrap back to 1.
+    assert page.count('href="#more-2"') == 2
+    assert page.count('href="#more-1"') == 2
+    assert "1 / 2" in page
 
 
 def test_detail_without_an_image_shows_the_placeholder(client, product):
