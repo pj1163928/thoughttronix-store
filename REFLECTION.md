@@ -74,3 +74,80 @@ Before this, any code could be created, which would be somewhat disorganized and
 Claude made a few mistakes that were automatically caught in its testing; most of these were arithmetic errors or overwriting previous tests.
 
 Claude was able to use the changes to alter the code and the tests to work properly, making all tests succeed.
+
+# Product Images
+
+## One Decision From Grill Me
+
+One of the biggest decisions I overruled based on Claude's questioning was implementing the ability to add multiple pictures. Claude argued that this would make the project and codebase more complicated and that, to simply satisfy the given requirements, a single image should be used.
+
+I did decide to overrule this mainly because it would make the product listing more advanced and diverse. I also gave it criteria to select an image as a primary.
+
+Claude was right about it making things more complicated, as I had much more back-and-forth conversations with the agent about how to better style the images it provided me with and how to improve the gallery.
+
+## Uploading Images
+
+### 1. Referencing the `ImageField`
+
+To upload an image, it first references the `ImageField` on `Product`, located in `products/models.py` lines 106–108:
+
+```python
+image = models.ImageField(
+    "main image", upload_to=PRODUCT_FOLDER, blank=True, editable=False
+)
+```
+
+Essentially, it is referencing that an image is associated with that product.
+
+The `upload_to` parameter places the uploaded image inside the `products` folder.
+
+### 2. Upload Form
+
+The upload form is used to upload product images and is located in:
+
+`templates/products/manage_product_images.html`, lines 58–60.
+
+```html
+<form method="post" enctype="multipart/form-data"
+      action="{% url 'products:manage_product_image_upload' product.pk %}"
+      class="mt-2 space-y-4">
+```
+
+I also have one for any additional images, but they both accomplish essentially the same purpose: posting an image to the server and allowing the user to view the image.
+
+The `enctype` is essentially used to send the actual file, not just the file name. Without `enctype`, it would only send the file name rather than the full image file.
+
+## Following an Image Request
+
+### 1. Where the Image Is Stored
+
+```text
+\thoughttronix-store\media\products\80d48821e30a452799c45e82c8e44604-thumb.webp
+```
+
+This is stored in the root `media` folder under the `products` subfolder.
+
+It is also re-uploaded as a `.webp` file, so the original file name is not saved.
+
+It is stored as two images: one for the full image and the other for a thumbnail.
+
+### 2. Value Stored in the Database
+
+```text
+products/80d48821e30a452799c45e82c8e44604.webp
+```
+
+This is stored in the `products_product` row for `MindReader`, the product that I created. The `image` column holds the path to the image.
+
+### 3. Value the Web Browser Requests to View the Image
+
+```text
+/media/products/80d48821e30a452799c45e82c8e44604.webp
+```
+
+The browser requests the image on the detail page.
+
+Product cards in the catalog use `card_image` rather than `display_image`.
+
+### Disclaimer
+ChatGPT was used to format the MD text readability, wording and choice of thought is entirely humanly generated.
