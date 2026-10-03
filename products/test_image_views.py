@@ -584,13 +584,17 @@ def test_stale_holds_are_swept(prepared, media_root):
     assert len(images.held_images([old, fresh])) == 1
 
 
-def test_the_product_list_shows_thumbnails_and_no_image_badges(
+def test_the_product_list_shows_thumbnails_and_faded_placeholders(
     staff_client, product_with_image, featured_product
 ):
     page = staff_client.get(reverse("products:manage_products")).content.decode()
 
     assert f"/media/{product_with_image.image_thumbnail.name}" in page
-    assert page.count("No image") == 1
+    assert "No image" not in page
+    assert page.count("images/placeholders/home-assistants.svg") == 1
+    assert page.count('title="No photo yet — manage images"') == 1
+    assert page.count("opacity-50") == 1
+    assert page.count("aspect-[4/3]") == 2
 
 
 # --- The storefront -------------------------------------------------------------------
@@ -605,7 +609,7 @@ def test_catalog_cards_use_the_thumbnail_lazily_with_dimensions(
     assert 'width="600" height="750"' in page
     assert 'loading="lazy"' in page
     assert 'decoding="async"' in page
-    assert "aspect-[4/5]" in page
+    assert "aspect-[4/3]" in page
 
 
 def test_catalog_shows_the_placeholder_when_the_file_is_missing(
@@ -619,43 +623,124 @@ def test_catalog_shows_the_placeholder_when_the_file_is_missing(
     assert "images/placeholders/home-assistants.svg" in page
 
 
-def test_detail_shows_the_full_image_eagerly_without_a_carousel(
+def img_tags(page, url):
+    """Every ``<img>`` tag in ``page`` whose ``src`` is ``url``, in page order."""
+    return [tag for tag in re.findall(r"<img[^>]*>", page) if f'src="{url}"' in tag]
+
+
+def test_detail_with_one_image_shows_it_whole_eagerly_without_a_gallery(
     client, product_with_image
 ):
     page = client.get(product_with_image.get_absolute_url()).content.decode()
 
-    tag = page[page.index(f"/media/{product_with_image.image.name}") :]
-    tag = tag[: tag.index(">")]
-    assert "loading=" not in tag  # above the fold: not lazy
-    assert "carousel" not in page
+    backdrop, photo, full_size = img_tags(
+        page, f"/media/{product_with_image.image.name}"
+    )
+    assert "loading=" not in photo  # above the fold: not lazy
+    assert "object-contain" in photo  # whole, never cropped
+    assert 'alt="Seraphine on a shelf"' in photo
+    assert 'loading="lazy"' in full_size  # only fetched once it's opened
+    assert 'type="radio"' not in page  # one image: no strip, no arrows
+    assert "gallery-strip" not in page
+    assert "Next image" not in page
 
 
-def test_detail_shows_the_main_image_once_and_extras_in_their_own_carousel(
-    client, extra
+def test_detail_fills_the_letterbox_with_a_blurred_copy(client, product_with_image):
+    page = client.get(product_with_image.get_absolute_url()).content.decode()
+
+    backdrop = img_tags(page, f"/media/{product_with_image.image.name}")[0]
+    assert "blur-xl" in backdrop
+    assert "object-cover" in backdrop  # the copy is cropped to fill the frame
+    assert 'alt=""' in backdrop  # decorative: hidden from screen readers
+    assert 'aria-hidden="true"' in backdrop
+    assert "loading=" not in backdrop
+
+
+def test_clicking_the_photo_opens_it_full_size_without_javascript(
+    client, product_with_image
 ):
+    page = client.get(product_with_image.get_absolute_url()).content.decode()
+
+    assert page.count('href="#zoom-1"') == 1
+    # A CSS :target overlay: hidden until the link's fragment names it.
+    overlay = re.search(r'<div id="zoom-1"[^>]*>.*?</div>', page, re.DOTALL)
+    assert "hidden" in overlay[0]
+    assert "target:flex" in overlay[0]
+    assert f'src="/media/{product_with_image.image.name}"' in overlay[0]
+    # Closing points at a fragment no element has, so the page doesn't jump.
+    assert 'href="#close"' in overlay[0]
+    assert 'id="close"' not in page
+
+
+def test_detail_gallery_gives_each_image_its_own_full_size_view(client, extra):
+    page = client.get(extra.product.get_absolute_url()).content.decode()
+
+    assert re.findall(r'href="#zoom-(\d+)"', page) == ["1", "2"]
+    assert re.findall(r'id="zoom-(\d+)"', page) == ["1", "2"]
+
+
+def test_detail_gallery_puts_the_main_image_first(client, extra):
     product = Product.objects.get(pk=extra.product_id)
 
     page = client.get(product.get_absolute_url()).content.decode()
 
-    assert page.count(f"/media/{product.image.name}") == 1  # never repeated
-    assert page.count("/media/products/") == 2  # main + one extra, no thumbnails
-    assert "More images" in page
-    assert 'class="carousel' in page
-    assert f"/media/{extra.image.name}" in page
+    main, more = f"/media/{product.image.name}", f"/media/{extra.image.name}"
+    # Each: blurred backdrop, slide, full-size view and thumbnail.
+    assert page.count(main) == 4
+    assert page.count(more) == 4
+    assert page.index(main) < page.index(more)
+    assert "More images" not in page
+    assert "carousel" not in page
     assert 'alt="The back panel"' in page
-    assert "Next image" not in page  # one extra: nothing to scroll to
+    assert "1 / 2" in page
+    assert "2 / 2" in page
 
 
-def test_the_extras_carousel_has_wrapping_arrows(client, extra, prepared):
+def test_detail_gallery_has_one_radio_per_image_with_the_first_checked(client, extra):
+    page = client.get(extra.product.get_absolute_url()).content.decode()
+
+    radios = re.findall(r'<input type="radio" name="gallery"[^>]*>', page)
+    assert len(radios) == 2
+    assert 'id="gallery-1"' in radios[0]
+    assert "checked" in radios[0]
+    assert "checked" not in radios[1]
+    # Each thumbnail is a label for its own radio.
+    assert re.findall(r'<label for="gallery-(\d+)"\s+class="gallery-thumb', page) == [
+        "1",
+        "2",
+    ]
+
+
+def test_detail_gallery_loads_only_the_first_slide_eagerly(client, extra):
+    product = Product.objects.get(pk=extra.product_id)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    backdrop, photo = img_tags(page, f"/media/{product.image.name}")[:2]
+    assert "loading=" not in backdrop
+    assert "loading=" not in photo
+    backdrop, photo = img_tags(page, f"/media/{extra.image.name}")[:2]
+    assert 'loading="lazy"' in backdrop
+    assert 'loading="lazy"' in photo
+
+
+def test_detail_gallery_arrows_wrap_around(client, extra, prepared):
     images.add_extra_image(extra.product, prepared)
 
     page = client.get(extra.product.get_absolute_url()).content.decode()
 
-    assert page.count('aria-label="Next image"') == 2
-    # Slide 1's arrows both lead to slide 2, and slide 2's both wrap back to 1.
-    assert page.count('href="#more-2"') == 2
-    assert page.count('href="#more-1"') == 2
-    assert "1 / 2" in page
+    arrows = re.findall(
+        r'<label for="gallery-(\d+)"[^>]*title="(Previous|Next) image"', page
+    )
+    assert arrows == [
+        ("3", "Previous"),  # slide 1 wraps back to the last
+        ("2", "Next"),
+        ("1", "Previous"),
+        ("3", "Next"),
+        ("2", "Previous"),
+        ("1", "Next"),  # the last wraps on to the first
+    ]
+    assert "3 / 3" in page
 
 
 def test_detail_without_an_image_shows_the_placeholder(client, product):
@@ -663,6 +748,8 @@ def test_detail_without_an_image_shows_the_placeholder(client, product):
 
     assert "images/placeholders/home-assistants.svg" in page
     assert "/media/" not in page
+    assert "blur-xl" not in page  # nothing to blur
+    assert "#zoom-" not in page  # nothing to zoom into
 
 
 # --- The Django admin ------------------------------------------------------------------

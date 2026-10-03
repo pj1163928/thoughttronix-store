@@ -182,12 +182,12 @@ class Product(models.Model):
 
     @cached_property
     def extra_pictures(self):
-        """The product page's "More images" carousel: each extra's display file.
+        """The extras' display files, in gallery order — never the main image.
 
-        The main image is never repeated here — it has the page's primary
-        frame to itself. An extra whose file is missing is left out rather
-        than shown as a placeholder mid-carousel. Extras without their own
-        alt text are described by position, e.g. "Seraphine — image 2 of 3".
+        The product page's gallery shows ``display_image`` first and these
+        after it. An extra whose file is missing is left out rather than
+        shown as a placeholder mid-gallery. Extras without their own alt
+        text are described by position, e.g. "Seraphine — image 2 of 3".
         """
         extras = list(self.extra_images.all())
         total = 1 + len(extras)
@@ -203,8 +203,8 @@ class Product(models.Model):
 class ProductImage(models.Model):
     """One extra image in a product's gallery — never the main image.
 
-    Extras are shown in their own carousel below ``Product.image`` on the
-    product page. They never replace it on their own: removing the main
+    Extras follow ``Product.image`` in the product page's gallery. They
+    never replace it on their own: removing the main
     image leaves the placeholder, not the first extra. An employee can
     promote one deliberately (``products.images.make_main``).
     ``products.images.MAX_EXTRAS`` caps how many one product can have.

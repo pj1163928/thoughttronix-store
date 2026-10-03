@@ -34,7 +34,16 @@
 ## Styling and assets
 
 - Styling is Tailwind + DaisyUI classes only; no crispy-forms, no JavaScript
-  beyond HTMX.
+  beyond HTMX. The one exception is the product page's CSS-only gallery
+  (`_gallery_slide.html`, `_gallery_thumb.html`): a hidden radio per image,
+  with thumbnails and the wrap-around arrows as `<label for>`. Pairing radio
+  N with slide N and thumbnail N can't be written as classes, so those state
+  rules live in `assets/css/source.css` (nine positions, `MAX_IMAGES`).
+  Each product-page photo goes through `_zoom_frame.html`: a blurred copy
+  (`_picture.html` with `decorative=True`) fills the letterbox, and the
+  full-size view is a `:target` overlay (`#zoom-<n>`, closed by `#close`,
+  a fragment no element has, so the page doesn't jump).
+- Image frames are 4:3 everywhere, matching the placeholder SVGs.
 - `assets/css/source.css` is the Tailwind input; `assets/css/tailwind.css` is
   compiled output (gitignored, never edit).
 - `assets/js/htmx.min.js` is vendored htmx 2.0.6 — no CDN.
@@ -44,7 +53,7 @@
   see [IMAGES.md](IMAGES.md).
 - Line-item thumbnails (cart, checkout, order history, order detail,
   confirmation, back-office order detail) all use
-  `products/partials/_thumbnail.html`: one fixed 48×60 frame. The `<img>` is
-  sized itself (attributes plus `h-15 w-12`), never `w-full`/`h-full` of its
+  `products/partials/_thumbnail.html`: one fixed 64×48 frame. The `<img>` is
+  sized itself (attributes plus `w-16 h-12`), never `w-full`/`h-full` of its
   frame, so a browser-cached stylesheet that lacks the frame's classes still
   can't render the photo at full size. Include it with `only`.

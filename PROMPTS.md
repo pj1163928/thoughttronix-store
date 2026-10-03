@@ -30,6 +30,194 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-03 — Image sizing and product-page polish: the build, a blurred fill with full-size view, and two alignment passes
+
+### Prompts
+
+1. "@HANDOFF.md implement the feature"
+2. "On final design decsion and then i think it wuld look perfect for smaller
+   images that are cutoff at the sides, can we add a blur effect to make up
+   the lost side of the image it should still be cropped, but as soon as the
+   user clicks on the image it will alow them to view it in full detail"
+3. "One last change the image in the the actual product is a little too high
+   ideally I would like it to be centered with the product text as to make
+   the design look as cohesive as possible."
+4. "Ok for items that have multiple imges can we also have them line up as
+   well to where the top of the fram is close in line with the top of the
+   title fram the image should not go above the product title"
+5. "can you append the list of change to the PROMPTS.md file"
+
+### Summary
+
+- **Outcome:** The design in `HANDOFF.md` was built as specified:
+  - **4:3 frames everywhere.** Catalog cards, the back-office list, the
+    Images page, the remove-image confirmation and the image picker all
+    use 4:3. The shared line-item thumbnail is now 64×48 and still sizes
+    its own `<img>`.
+  - **One CSS-only gallery on the product page.** It has a hidden radio
+    per image with the main image first, a three-wide scroll-snap
+    thumbnail strip, wrap-around ❮ ❯ arrows and an "n / total" badge.
+    A product with one image gets the plain frame, with no radios, strip
+    or arrows.
+  - **Product-page layout.** The breadcrumb is a shaded bar with grid and
+    tag icons. The text column sits `md:gap-16` away in its own padded
+    card.
+  - **Back-office list.** "No image" is replaced by a faded category
+    placeholder with the tooltip "No photo yet — manage images".
+
+  The gallery needs one exception to "Tailwind classes only": pairing
+  radio N with slide N and thumbnail N can't be written as classes,
+  because the numbers change per product. Eighteen short state rules in
+  `assets/css/source.css` cover nine positions (`MAX_IMAGES`), and the
+  exception is recorded in `docs/TEMPLATES.md`. Two new partials keep the
+  "main image, then extras" loops short: `_gallery_slide.html` and
+  `_gallery_thumb.html`.
+
+  Prompt 2 added `_zoom_frame.html`. A blurred, cropped copy of each
+  product-page photo fills the empty sides of the letterboxed frame,
+  drawn through `_picture.html` with a new `decorative` flag that empties
+  the alt and hides the copy from screen readers. Clicking the photo
+  opens a full-size `:target` overlay (`#zoom-<n>`). It closes on
+  `#close`, a fragment no element has, so the page doesn't jump.
+  Placeholders get neither the blur nor the overlay.
+
+  Prompts 3 and 4 settled the alignment on md+ screens. The text card
+  sits at the top of the row (`md:self-start`) and the image column
+  centres in the row (`md:self-center`). When the text is taller, the
+  image is centred on it; when the gallery is taller, the two tops line
+  up. The image never rises above the title.
+
+  `docs/IMAGES.md`, `docs/TEMPLATES.md` and the `extra_pictures` and
+  `ProductImage` docstrings were updated. `extra_pictures` behaves exactly
+  as before. The suite grew from 433 to 436 tests, all passing, with ruff
+  clean and the CSS rebuilt.
+
+- **Deviations:**
+  - **Prompt 2's scope was decided, not asked.** The request was read as
+    the product page only, the one place with letterboxing. Catalog cards
+    already crop to fill, and clicking one already opens the product
+    page. "Full detail" was read as a full-size overlay rather than
+    opening the image file in a new tab.
+  - **The handoff's PROMPTS.md step was held back.** This log's own rule
+    says entries are added only on request, so the build's entry waited
+    for prompt 5.
+  - **Changes were offered back for some limits rather than worked
+    around:**
+    - The strip's thumbnails load the 1200 px display files, because
+      `extra_pictures` only provides those and the handoff said not to
+      change it.
+    - Esc doesn't close the full-size view.
+    - The browser's Back button reopens the last full-size view.
+    - "Full detail" tops out at 1200 px, since the original upload isn't
+      kept.
+
+- **Sideways:**
+  - **`uv run pytest` was blocked** by a Windows Application Control
+    policy on the `pytest.exe` launcher. Every run since has used
+    `uv run python -m pytest`.
+  - **The first Tailwind build reported "up to date"** and rebuilt
+    nothing. A grep of the compiled CSS confirmed the new classes were
+    already there, presumably from a running watcher, and later builds
+    used `--force`.
+  - **A real bug, caught by a test.** The full-size overlay's `<img>`
+    inherited `eager=True` from the surrounding include, so it would
+    have loaded with the page. The test asserting it was lazy failed,
+    and `eager=False` is now passed explicitly.
+  - **Prompt 3's fix caused prompt 4's problem.** Centring the two columns
+    on each other moved a multi-image gallery, which is taller than the
+    card because of its strip, above the title. That case wasn't flagged
+    when prompt 3 was answered. The final layout replaced the symmetric
+    centring with the asymmetric rule above.
+  - **Nothing was checked in a browser.** Every change was verified by
+    tests and by grepping the compiled stylesheet, not visually.
+
+---
+
+## 2026-10-03 — Image sizing and product-page polish: the design interview and the handoff
+
+### Prompts
+
+1. The `/grill-me` skill, given the changes in the user's own words:
+   "Currently the images and menu look a little strange and I would like to
+   have them adjusted to look better. Firstly the top navigation menu per
+   product has a menu that allows a person to navigate back to the catalog of
+   view the associated category of the product, can this menu look nicer have
+   spacing and styling along the top of the product. Next the images for the
+   product and the catalog are just too big and have no real sizing
+   constraints, I would like to have all tiles pretty much the same size as
+   the placeholder images, cropping or clipping an image is acceptable. Next
+   the product description of an image does not look quite right either, The
+   text is right adjacent to the actual image can we have some additional
+   padding inbetween the text and the image. Nex the carousel feature is not
+   working as fully intended, I do not want to have images appended in an
+   ever expanding vertical list I would like to have them in a horizontal
+   list where at most it would have about 3 images and it would allow you to
+   scroll between them, it would show the tumbnail image at the bottom as you
+   are scrolling and update the main image to display what the thumbnail
+   image is showing. Next in the back office menu instead of showing no image
+   can you place the placeholder image"
+2. "4:3 everywhere (Recommended)" (Q1: frame shape for catalog, product page
+   and back office)
+3. "Yes, make them 4:3 (Recommended)" (Q2: line-item thumbnails become
+   64×48)
+4. "Show whole photo (Recommended)" (Q3: product page main frame letterboxes
+   rather than crops)
+5. "One gallery, main first (Recommended)" (Q4: main image is the first
+   thumbnail; the separate "More images" carousel goes)
+6. "CSS-only radio trick (Recommended)" (Q5: how a thumbnail swaps the main
+   image without JavaScript)
+7. "Scroll strip + arrows on main (Recommended)" (Q6: three visible
+   thumbnails, wrapping arrows on the main image)
+8. "Styled breadcrumb bar (Recommended)" (Q7: the top navigation)
+9. "Wider gap + text panel (Recommended)" (Q8: space between the gallery and
+   the text)
+10. "Placeholder, dimmed + tooltip (Recommended)" (Q9: back-office list rows
+    without a photo)
+11. The `/handoff` skill, with no arguments.
+12. "Please append a list of change to the PROMPTS.md file according to its
+    formatting"
+
+### Summary
+
+- **Outcome:** Design only; no application code was written. Nine
+  questions, one at a time, each naming what it settled and recommending an
+  option. The agreed design, the tests and docs it will touch, and the
+  gotchas are recorded in `HANDOFF.md`, which was newly created. In brief:
+  every product image frame becomes 4:3 to match the placeholders, including
+  the shared line-item thumbnail; the product page gets one CSS-only gallery
+  (hidden radios, main image first, a three-wide scrolling strip, wrapping
+  arrows) in a fixed letterboxed frame; the breadcrumb becomes a padded,
+  shaded bar with icons; the text column moves 4rem away into its own card;
+  and the back-office list shows a faded placeholder with a tooltip instead
+  of "No image".
+
+  Several answers came from reading rather than asking: the catalog cards
+  use a 4:5 frame while the placeholder SVGs are 4:3, which explains why
+  placeholders look smaller than photos; the product page's main image is
+  `h-auto w-full` with no height bound; the back office's "No image" is a
+  single `has_image` branch that `_picture.html` already makes unnecessary;
+  `docs/TEMPLATES.md` forbids JavaScript beyond HTMX, which shaped Q5 and
+  Q6; and four tests in `products/test_image_views.py` assert the old markup
+  and will need rewriting.
+
+- **Deviations:** None from a recommendation; every answer took the
+  recommended option. Two answers reverse earlier settled decisions, at the
+  user's request: Q1 replaces the 2026-09-30 interview's Q9 (a fixed 4:5
+  card frame) and that session's 48×60 thumbnail, and Q4 returns to roughly
+  the original Q10 layout (main image first with a thumbnail row), undoing
+  the main-image-only page with a separate extras carousel from the
+  2026-09-30 build's prompt 5. No follow-up questions were asked.
+
+- **Sideways:** No code, so nothing broke. One limitation was accepted
+  knowingly rather than discovered: without JavaScript, the arrows on the
+  main image cannot scroll the thumbnail strip along, so past the third
+  image the highlighted thumbnail can sit out of view. The "too big" complaint
+  was diagnosed from the templates and the compiled stylesheet (which does
+  contain the aspect-ratio classes), not from a screenshot or a live
+  browser, so the cause has not been confirmed visually.
+
+---
+
 ## 2026-09-30 — One fixed size for cart, checkout and order thumbnails
 
 ### Prompts

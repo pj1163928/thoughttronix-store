@@ -21,8 +21,8 @@
     <section class="card bg-base-100 shadow-md">
       <div class="card-body">
         <h3 class="card-title text-base">Card preview</h3>
-        <p class="text-xs opacity-60">How the catalog shows it: a 4:5 frame, cropped to fill.</p>
-        <div class="mx-auto mt-2 aspect-[4/5] w-full max-w-60 overflow-hidden rounded-box bg-base-200">
+        <p class="text-xs opacity-60">How the catalog shows it: a 4:3 frame, cropped to fill.</p>
+        <div class="mx-auto mt-2 aspect-[4/3] w-full max-w-72 overflow-hidden rounded-box bg-base-200">
           {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" eager=True %}
         </div>
       </div>
@@ -81,15 +81,15 @@
         </h3>
       </div>
       <p class="text-sm opacity-60">
-        Shown in the "More images" carousel below the main image on the
-        product page. "Make main image" swaps one with the current main image.
+        Shown after the main image in the product page's gallery, in this
+        order. "Make main image" swaps one with the current main image.
       </p>
 
       {% if extras %}
         <ol class="mt-2 grid grid-cols-2 gap-4 sm:grid-cols-4">
           {% for extra in extras %}
             <li class="rounded-box border border-base-300 p-2">
-              <div class="aspect-[4/5] overflow-hidden rounded bg-base-200">
+              <div class="aspect-[4/3] overflow-hidden rounded bg-base-200">
                 {% include "products/partials/_picture.html" with pic=extra.preview class="h-full w-full" %}
               </div>
               <p class="mt-2 text-xs">

@@ -6,7 +6,7 @@
     <p class="label mb-1">Images</p>
     <p class="text-sm opacity-80">
       Add all of the product's images first, then choose which one is the main image.
-      The others appear in a carousel on the product page.
+      The others follow it in the product page's gallery.
     </p>
     <p class="mt-1 text-xs opacity-60">
       JPEG, PNG or WebP · at least 600 pixels on each side · up to 10 MB each ·
@@ -41,7 +41,7 @@
         {% for choice in image_choices %}
           <div class="relative">
             <label class="block cursor-pointer rounded-box border-2 border-base-300 p-1 has-[:checked]:border-primary">
-              <span class="block aspect-[4/5] overflow-hidden rounded bg-base-200">
+              <span class="block aspect-[4/3] overflow-hidden rounded bg-base-200">
                 {% include "products/partials/_picture.html" with pic=choice.preview class="h-full w-full" eager=True %}
               </span>
               <span class="mt-1 flex items-center gap-2 px-1 text-xs">

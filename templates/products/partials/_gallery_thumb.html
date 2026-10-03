@@ -1,0 +1,6 @@
+{# One thumbnail in the product page's gallery strip: a label that checks radio ``n``. #}
+{# The selected one gets a primary border (assets/css/source.css). #}
+<label for="gallery-{{ n }}"
+       class="gallery-thumb block aspect-[4/3] w-[30%] shrink-0 cursor-pointer snap-start overflow-hidden rounded-box border-2 border-transparent bg-base-200 opacity-60 transition hover:opacity-100">
+  {% include "products/partials/_picture.html" with pic=pic class="h-full w-full" %}
+</label>

@@ -1,0 +1,18 @@
+{# The product page's picture ``pic`` inside a 4:3 frame (the frame must be ``relative overflow-hidden``). #}
+{# A photo is shown whole; a blurred, cropped copy of itself fills the sides it leaves empty. #}
+{# Clicking it opens full-size view ``zoom-<n>``: a CSS :target overlay, no JavaScript. Closing points at #}
+{# a fragment no element has, so the page doesn't jump. Placeholders are shown as they are: nothing to zoom. #}
+{% if pic.is_placeholder %}
+  {% include "products/partials/_picture.html" with pic=pic class="h-full w-full" eager=eager %}
+{% else %}
+  {% include "products/partials/_picture.html" with pic=pic class="absolute inset-0 h-full w-full scale-110 opacity-60 blur-xl" decorative=True eager=eager %}
+  <a href="#zoom-{{ n }}" class="relative block h-full w-full cursor-zoom-in" title="View full size">
+    {% include "products/partials/_picture.html" with pic=pic fit="object-contain" class="h-full w-full" eager=eager %}
+  </a>
+  <div id="zoom-{{ n }}" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/90 p-4 target:flex"
+       role="dialog" aria-label="{{ pic.alt }}, full size">
+    <a href="#close" class="absolute inset-0 cursor-zoom-out" aria-label="Close full-size view"></a>
+    {% include "products/partials/_picture.html" with pic=pic fit="object-contain" class="relative h-auto max-h-full w-auto max-w-full rounded-box" eager=False %}
+    <a href="#close" class="btn btn-circle btn-sm absolute right-4 top-4" aria-label="Close full-size view">✕</a>
+  </div>
+{% endif %}

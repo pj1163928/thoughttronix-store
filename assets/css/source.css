@@ -3,3 +3,43 @@
 @plugin "daisyui" {
   themes: night --default;
 }
+
+/* The product page's gallery (products/detail.html) is CSS only — no JavaScript beyond HTMX.
+   One visually hidden radio per image, checked by clicking a thumbnail or an arrow (both are
+   <label for>). Radio N shows slide N and marks thumbnail N. Tailwind can't express "the same
+   position" with classes, so the pairing lives here: nine positions cover MAX_IMAGES in
+   products/images.py. Unlayered, so it wins over the thumbnails' utility classes. */
+.gallery-slide {
+  display: none;
+}
+
+.gallery-radio:nth-of-type(1):checked ~ .gallery-stage > .gallery-slide:nth-child(1),
+.gallery-radio:nth-of-type(2):checked ~ .gallery-stage > .gallery-slide:nth-child(2),
+.gallery-radio:nth-of-type(3):checked ~ .gallery-stage > .gallery-slide:nth-child(3),
+.gallery-radio:nth-of-type(4):checked ~ .gallery-stage > .gallery-slide:nth-child(4),
+.gallery-radio:nth-of-type(5):checked ~ .gallery-stage > .gallery-slide:nth-child(5),
+.gallery-radio:nth-of-type(6):checked ~ .gallery-stage > .gallery-slide:nth-child(6),
+.gallery-radio:nth-of-type(7):checked ~ .gallery-stage > .gallery-slide:nth-child(7),
+.gallery-radio:nth-of-type(8):checked ~ .gallery-stage > .gallery-slide:nth-child(8),
+.gallery-radio:nth-of-type(9):checked ~ .gallery-stage > .gallery-slide:nth-child(9) {
+  display: block;
+}
+
+.gallery-radio:nth-of-type(1):checked ~ .gallery-strip > .gallery-thumb:nth-child(1),
+.gallery-radio:nth-of-type(2):checked ~ .gallery-strip > .gallery-thumb:nth-child(2),
+.gallery-radio:nth-of-type(3):checked ~ .gallery-strip > .gallery-thumb:nth-child(3),
+.gallery-radio:nth-of-type(4):checked ~ .gallery-strip > .gallery-thumb:nth-child(4),
+.gallery-radio:nth-of-type(5):checked ~ .gallery-strip > .gallery-thumb:nth-child(5),
+.gallery-radio:nth-of-type(6):checked ~ .gallery-strip > .gallery-thumb:nth-child(6),
+.gallery-radio:nth-of-type(7):checked ~ .gallery-strip > .gallery-thumb:nth-child(7),
+.gallery-radio:nth-of-type(8):checked ~ .gallery-strip > .gallery-thumb:nth-child(8),
+.gallery-radio:nth-of-type(9):checked ~ .gallery-strip > .gallery-thumb:nth-child(9) {
+  border-color: var(--color-primary);
+  opacity: 1;
+}
+
+/* Keyboard users move through the images with the arrow keys on the focused radio group. */
+.gallery-radio:focus-visible ~ .gallery-stage {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

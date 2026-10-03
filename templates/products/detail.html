@@ -4,53 +4,71 @@
 {% block title %}{{ product.name }} — The ThoughtTronix Store{% endblock %}
 
 {% block content %}
-  <div class="breadcrumbs mb-6 text-sm">
+  <nav aria-label="Breadcrumb" class="breadcrumbs mb-10 rounded-box bg-base-200 px-4 py-3 text-sm">
     <ul>
-      <li><a href="{% url 'products:catalog' %}">Catalog</a></li>
-      <li><a href="{{ product.category.get_absolute_url }}">{{ product.category.name }}</a></li>
-      <li>{{ product.name }}</li>
+      <li>
+        <a href="{% url 'products:catalog' %}" class="inline-flex items-center gap-2 hover:text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
+          </svg>
+          Catalog
+        </a>
+      </li>
+      <li>
+        <a href="{{ product.category.get_absolute_url }}" class="inline-flex items-center gap-2 hover:text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 0 0 3 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 0 0 5.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 0 0 9.568 3Z" />
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6Z" />
+          </svg>
+          {{ product.category.name }}
+        </a>
+      </li>
+      <li><span class="font-semibold" aria-current="page">{{ product.name }}</span></li>
     </ul>
-  </div>
+  </nav>
 
-  <div class="grid grid-cols-1 gap-8 md:grid-cols-2">
-    <div>
-      {# The main image alone, full and uncropped. #}
-      <figure class="overflow-hidden rounded-box bg-base-100 shadow-md">
-        {% include "products/partials/_picture.html" with pic=product.display_image class="h-auto w-full" eager=True %}
-      </figure>
-
-      {# The other images in their own carousel: swipe or scroll it, or use the arrows. #}
-      {# Each arrow is a link to the neighbouring slide (wrapping round) — no JavaScript. #}
+  {# On md+ the text card sits at the top and the images centre in the row: a taller card centres the #}
+  {# images on it, a taller gallery lines its top up with the card's. The images never rise above the title. #}
+  <div class="grid grid-cols-1 gap-8 md:grid-cols-2 md:gap-16">
+    <div class="md:self-center">
+      {# One gallery, main image first, each shown whole in a fixed 4:3 frame. #}
       {% with extras=product.extra_pictures %}
         {% if extras %}
-          <h2 class="mt-6 mb-2 text-sm font-semibold uppercase tracking-wide opacity-60">
-            More images <span class="font-normal">({{ extras|length }})</span>
-          </h2>
-          <div class="carousel w-full rounded-box bg-base-200 shadow-md">
-            {% for pic in extras %}
-              <div id="more-{{ forloop.counter }}" class="carousel-item relative w-full">
-                {% include "products/partials/_picture.html" with pic=pic fit="object-contain" class="h-80 w-full sm:h-96" %}
-                {% if extras|length > 1 %}
-                  <div class="absolute inset-x-3 top-1/2 flex -translate-y-1/2 justify-between">
-                    <a href="#more-{% if forloop.first %}{{ extras|length }}{% else %}{{ forloop.counter|add:-1 }}{% endif %}"
-                       class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
-                       aria-label="Previous image">❮</a>
-                    <a href="#more-{% if forloop.last %}1{% else %}{{ forloop.counter|add:1 }}{% endif %}"
-                       class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
-                       aria-label="Next image">❯</a>
-                  </div>
-                  <span class="badge badge-neutral badge-sm absolute bottom-3 right-3">
-                    {{ forloop.counter }} / {{ extras|length }}
-                  </span>
-                {% endif %}
+          {# CSS-only: one hidden radio per image; thumbnails and arrows are labels for them. #}
+          {# The pairing of radio, slide and thumbnail lives in assets/css/source.css. #}
+          {% with total=extras|length|add:1 %}
+            <div class="gallery relative">
+              <input type="radio" name="gallery" id="gallery-1" class="gallery-radio sr-only"
+                     aria-label="{{ product.display_image.alt }}" checked />
+              {% for pic in extras %}
+                <input type="radio" name="gallery" id="gallery-{{ forloop.counter|add:1 }}"
+                       class="gallery-radio sr-only" aria-label="{{ pic.alt }}" />
+              {% endfor %}
+
+              <div class="gallery-stage relative aspect-[4/3] overflow-hidden rounded-box bg-base-200 shadow-md">
+                {% include "products/partials/_gallery_slide.html" with pic=product.display_image n=1 eager=True %}
+                {% for pic in extras %}
+                  {% include "products/partials/_gallery_slide.html" with pic=pic n=forloop.counter|add:1 %}
+                {% endfor %}
               </div>
-            {% endfor %}
-          </div>
+
+              <div class="gallery-strip mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1">
+                {% include "products/partials/_gallery_thumb.html" with pic=product.display_image n=1 %}
+                {% for pic in extras %}
+                  {% include "products/partials/_gallery_thumb.html" with pic=pic n=forloop.counter|add:1 %}
+                {% endfor %}
+              </div>
+            </div>
+          {% endwith %}
+        {% else %}
+          <figure class="relative aspect-[4/3] overflow-hidden rounded-box bg-base-200 shadow-md">
+            {% include "products/partials/_zoom_frame.html" with pic=product.display_image n=1 eager=True %}
+          </figure>
         {% endif %}
       {% endwith %}
     </div>
 
-    <div>
+    <div class="card bg-base-200 p-6 md:self-start md:p-8">
       <h1 class="text-4xl font-bold">{{ product.name }}</h1>
       {% if product.tagline %}
         <p class="mt-2 text-lg italic opacity-70">{{ product.tagline }}</p>

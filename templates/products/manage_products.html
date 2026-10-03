@@ -30,15 +30,11 @@
           {% for product in products %}
             <tr>
               <td>
+                {# No photo: the faded category placeholder, in the same frame. #}
                 <a href="{% url 'products:manage_product_images' product.pk %}"
-                   title="Manage images for {{ product.name }}">
-                  {% if product.has_image %}
-                    <span class="block aspect-[4/5] w-12 overflow-hidden rounded bg-base-200">
-                      {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" %}
-                    </span>
-                  {% else %}
-                    <span class="badge badge-ghost badge-sm whitespace-nowrap">No image</span>
-                  {% endif %}
+                   title="{% if product.has_image %}Manage images for {{ product.name }}{% else %}No photo yet — manage images{% endif %}"
+                   class="block aspect-[4/3] w-16 overflow-hidden rounded bg-base-200{% if not product.has_image %} opacity-50 hover:opacity-100{% endif %}">
+                  {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" %}
                 </a>
               </td>
               <td>

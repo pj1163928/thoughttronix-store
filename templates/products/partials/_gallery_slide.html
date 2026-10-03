@@ -1,0 +1,15 @@
+{# One large image in the product page's gallery: image ``n`` of ``total``, shown whole (see _zoom_frame.html). #}
+{# The arrows are labels for the neighbouring radios, wrapping round — no JavaScript. #}
+{# They're aria-hidden: keyboard and screen-reader users move with the radio group's arrow keys. #}
+<div class="gallery-slide h-full w-full">
+  {% include "products/partials/_zoom_frame.html" %}
+  <div class="absolute inset-x-3 top-1/2 flex -translate-y-1/2 justify-between">
+    <label for="gallery-{% if n == 1 %}{{ total }}{% else %}{{ n|add:-1 }}{% endif %}"
+           class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
+           title="Previous image" aria-hidden="true">❮</label>
+    <label for="gallery-{% if n == total %}1{% else %}{{ n|add:1 }}{% endif %}"
+           class="btn btn-circle btn-sm opacity-80 hover:opacity-100"
+           title="Next image" aria-hidden="true">❯</label>
+  </div>
+  <span class="badge badge-neutral badge-sm absolute bottom-3 right-3">{{ n }} / {{ total }}</span>
+</div>

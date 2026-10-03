@@ -3,8 +3,10 @@
 Images live in `products/images.py`, the third deep module. Nothing else
 writes, deletes or validates an image file. A product has one main image
 on `Product.image` and up to eight ordered extras in `ProductImage`.
-The product page shows the main image alone, with the extras in their
-own "More images" carousel below it. An extra never stands in for the
+The product page shows one gallery: the main image first, then the
+extras, each shown whole in a fixed 4:3 frame. A blurred, cropped copy
+of the photo fills the sides it leaves empty, and clicking the photo
+opens it full size (`_zoom_frame.html`). An extra never stands in for the
 main image by itself: remove the main image and the store shows the
 placeholder. It becomes main only when an employee chooses it
 (`make_main`, a swap of stored names, not of files). Each stored image is

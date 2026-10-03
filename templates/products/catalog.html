@@ -59,7 +59,7 @@
   <div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
     {% for product in products %}
       <div class="card bg-base-100 shadow-md transition-shadow hover:shadow-xl">
-        <figure class="aspect-[4/5] bg-base-200">
+        <figure class="aspect-[4/3] bg-base-200">
           <a href="{{ product.get_absolute_url }}" class="block h-full w-full">
             {% include "products/partials/_picture.html" with pic=product.card_image class="h-full w-full" %}
           </a>
