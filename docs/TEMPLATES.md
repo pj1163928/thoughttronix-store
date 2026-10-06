@@ -14,7 +14,8 @@
 
 - Partials live in `templates/<app>/partials/_<name>.html` — prefixed with an
   underscore, never extending `base.html`. HTMX endpoints render them
-  (`_cart_contents`, `_add_button`, `_address_fields`), and so do plain
+  (`_cart_contents`, `_add_button`, `_address_fields`,
+  `_wishlist_button`, `_wishlist_contents`), and so do plain
   `{% include %}`s (`_status_badge`, `_featured_badge`, `_address`).
 - Form fields render through a `_field.html` partial. Checkout and the
   address form use `orders/partials/_field.html`; forms built on

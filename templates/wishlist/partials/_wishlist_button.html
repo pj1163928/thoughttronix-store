@@ -1,0 +1,27 @@
+{# The wishlist control on the product page, showing the product's current state. #}
+{# Rendered by the wishlist_button tag on page load and by the add/remove HTMX #}
+{# endpoints after each click, both from the database. The fixed id lets htmx #}
+{# hand keyboard focus to the new button when this one is swapped out. #}
+{% if user.is_authenticated %}
+  {% if in_wishlist %}
+    <button id="wishlist-button"
+            hx-post="{% url 'wishlist:remove' product.pk %}"
+            hx-swap="outerHTML"
+            class="btn btn-secondary btn-sm">
+      <span aria-hidden="true">♥</span> On your wishlist — remove
+    </button>
+  {% else %}
+    <button id="wishlist-button"
+            hx-post="{% url 'wishlist:add' product.pk %}"
+            hx-swap="outerHTML"
+            class="btn btn-outline btn-secondary btn-sm">
+      <span aria-hidden="true">♡</span> Add to wishlist
+    </button>
+  {% endif %}
+{% else %}
+  {# Anonymous visitors are prompted to sign in — a plain link, no HTMX. #}
+  <a href="{% url 'accounts:login' %}?next={{ request.get_full_path|urlencode }}"
+     class="btn btn-outline btn-secondary btn-sm">
+    <span aria-hidden="true">♡</span> Add to wishlist
+  </a>
+{% endif %}

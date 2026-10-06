@@ -13,6 +13,9 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   [docs/ADDRESSES.md](docs/ADDRESSES.md)
 - touching product or order images, `products/images.py`, the Images
   page, or media settings → [docs/IMAGES.md](docs/IMAGES.md)
+- changing the wishlist, its product-page button, or anything that could
+  expose one customer's wishlist to anyone else →
+  [docs/WISHLIST.md](docs/WISHLIST.md)
 
 ## Commands
 
@@ -38,6 +41,8 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   in `products/seed_images/`)
 - `orders/` — cart, checkout, orders, discount codes, and the back-office
   order and discount management
+- `wishlist/` — the customer wishlist: one per user, private to its owner,
+  HTMX add/remove on the product page
 - `dashboard/` — the staff analytics dashboard
 - `templates/` — `base.html` and `templates/<app>/`
 - `assets/` — static sources; `assets/css/tailwind.css` is compiled output

@@ -1,0 +1,38 @@
+{% load cart_extras humanize %}
+{# The wishlist's saved products — swapped whole into #wishlist-contents by #}
+{# each row's Remove button. Add to cart swaps only its own button, and #}
+{# leaves the product on the wishlist. #}
+{% if items %}
+  <ul class="rounded-box bg-base-100 shadow-md">
+    {% for item in items %}
+      <li class="flex flex-wrap items-center gap-4 p-4{% if not forloop.last %} border-b border-base-200{% endif %}">
+        {% include "products/partials/_thumbnail.html" with pic=item.product.card_image href=item.product.get_absolute_url only %}
+        <div class="min-w-0 flex-1">
+          <a href="{{ item.product.get_absolute_url }}" class="link-hover font-semibold">
+            {{ item.product.name }}
+          </a>
+          <p class="text-sm opacity-70">${{ item.product.price|intcomma }}</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          {% include "orders/partials/_add_button.html" with product=item.product in_cart=cart_quantities|quantity_of:item.product.pk %}
+          <button class="btn btn-ghost btn-sm text-error"
+                  hx-post="{% url 'wishlist:remove_item' item.pk %}"
+                  hx-target="#wishlist-contents">
+            Remove
+          </button>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="py-16 text-center">
+    <p class="text-5xl">💭</p>
+    <p class="mt-4 text-xl font-semibold">Your wishlist is empty</p>
+    <p class="mt-2 opacity-70">
+      Save a product from its page and it will wait for you here.
+    </p>
+    <a href="{% url 'products:catalog' %}" class="btn btn-primary btn-sm mt-6">
+      Browse the catalog
+    </a>
+  </div>
+{% endif %}
