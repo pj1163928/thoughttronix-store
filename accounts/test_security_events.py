@@ -37,6 +37,7 @@ def test_signup_records_a_sign_up_event_with_the_ip(client, db):
         reverse("accounts:signup"),
         {
             "username": "fresh-thinker",
+            "email": "fresh@example.com",
             "password1": "neural-implant-9000",
             "password2": "neural-implant-9000",
         },
@@ -56,6 +57,7 @@ def test_a_refused_signup_records_nothing(client, db):
         reverse("accounts:signup"),
         {
             "username": "fresh-thinker",
+            "email": "fresh@example.com",
             "password1": "neural-implant-9000",
             "password2": "neural-implant-9001",
         },

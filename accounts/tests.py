@@ -17,6 +17,7 @@ def test_signup_creates_plain_customer(client, db):
         reverse("accounts:signup"),
         {
             "username": "fresh-thinker",
+            "email": "fresh@example.com",
             "password1": "neural-implant-9000",
             "password2": "neural-implant-9000",
         },
@@ -39,6 +40,7 @@ def test_signup_password_mismatch_shows_field_error(client, db):
         reverse("accounts:signup"),
         {
             "username": "fresh-thinker",
+            "email": "fresh@example.com",
             "password1": "neural-implant-9000",
             "password2": "neural-implant-9001",
         },

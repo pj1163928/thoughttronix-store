@@ -1,9 +1,12 @@
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import UserManager as DjangoUserManager
+from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models, transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
-from .validators import zip_validator
+from .validators import username_no_at_validator, zip_validator
 
 US_STATES = [
     ("AL", "Alabama"),
@@ -66,15 +69,68 @@ US_STATES = [
 ADDRESS_FIELDS = ["name", "street", "line2", "city", "state", "zip"]
 
 
+class UserManager(DjangoUserManager):
+    def with_email(self, email):
+        """Accounts using ``email``, compared case-insensitively.
+
+        A blank email matches nobody: accounts from before email was
+        required all have ``""``, and they don't share an address.
+        """
+        if not email:
+            return self.none()
+        return self.filter(email__iexact=email)
+
+
 class User(AbstractUser):
     """The store's user model.
 
     Roles use Django's own vocabulary and nothing else: customers are
     plain users, employees are ``is_staff``, the admin is ``is_superuser``.
+
+    Usernames and emails are each unique case-insensitively, enforced by
+    functional constraints so that no path — sign-up, a rename, the admin,
+    a shell — can slip a ``Casey`` past a ``casey``. Emails are stored as
+    entered; only comparisons ignore case. Blank emails are exempt,
+    because accounts created before sign-up asked for one have ``""``.
     """
 
+    username = models.CharField(
+        "username",
+        max_length=150,
+        unique=True,
+        help_text="Required. 150 characters or fewer. Letters, digits and ./+/-/_ only.",
+        validators=[UnicodeUsernameValidator(), username_no_at_validator],
+        error_messages={"unique": "A user with that username already exists."},
+    )
     # Nullable per the PRD: an absent job title is unknown, not empty.
     job_title = models.CharField(max_length=150, null=True, blank=True)  # noqa: DJ001
+
+    objects = UserManager()
+
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                Lower("username"),
+                name="unique_username_ci",
+                violation_error_message="A user with that username already exists.",
+            ),
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=~models.Q(email=""),
+                name="unique_email_ci",
+                violation_error_message=(
+                    "An account with that email address already exists."
+                ),
+            ),
+        ]
+
+    def clean(self):
+        # AbstractUser.clean lowercases the email's domain. Emails are
+        # stored exactly as entered and compared case-insensitively, so
+        # put back what was typed.
+        email = self.email
+        super().clean()
+        self.email = email
 
 
 class SecurityEvent(models.Model):

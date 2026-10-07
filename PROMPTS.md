@@ -30,6 +30,101 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 2: email at sign-up and identity rules
+
+### Prompts
+
+1. "@plans/account-security.md @prd/account-security.md Implement phase 2"
+2. "How can I check the changes made in the browser"
+3. "Append the chat session to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Phase 2 of `plans/account-security.md` was built and its
+  five acceptance criteria ticked:
+  - **Sign-up.** `SignupForm` now requires an email. The model field
+    stays `blank=True` for older accounts. `clean_email` refuses an email
+    another account already uses, in any capitalisation. The "No email"
+    docstring was rewritten.
+  - **Username rules.** `User.username` is overridden to run a new
+    `username_no_at_validator` (in `accounts/validators.py`) alongside
+    Django's `UnicodeUsernameValidator`. Because it's on the model field,
+    the rule also applies to renames and the admin. Django's
+    `UserCreationForm.clean_username` already refuses usernames that
+    differ only by case, so it was relied on rather than duplicated.
+  - **Constraints.** `User.Meta` gains two functional unique
+    constraints: `Lower("username")` and `Lower("email")`, the second
+    excluding blank emails. A custom `UserManager.with_email()` does the
+    case-insensitive lookup, and a blank email matches nobody.
+  - **Emails stored as entered.** `User.clean()` puts back the typed
+    email after `AbstractUser.clean()` lowercases its domain, because the
+    PRD says emails are stored as entered.
+  - **The migration.** `0004_case_insensitive_identities` runs a
+    duplicate check before adding the constraints. It groups rows with
+    the database's own `LOWER()`, the same expression the constraints
+    use. If accounts clash, it raises with every clashing value named and
+    changes nothing.
+
+  The suite went from 498 to 511 tests (13 new in
+  `accounts/test_identity.py`), all passing on the first run, with ruff
+  clean and `makemigrations --check` reporting no drift. The existing
+  sign-up tests in `accounts/tests.py` and
+  `accounts/test_security_events.py` gained an email field. The dev
+  database was migrated, so `db.sqlite3` shows as modified. Nothing was
+  committed.
+
+  Prompt 2 changed no code. It produced a browser walkthrough: a table of
+  sign-up attempts against the seeded `customer` account (blank email,
+  `Customer@Example.com`, `new@person`, `Customer`, and a valid sign-up
+  with a mixed-case email), then checking the stored email and the
+  "Signed up" event in the admin.
+
+- **Deviations:** no recommendations were offered, so none were
+  overridden, and the user asked no questions beyond the browser
+  walkthrough. Five judgment calls were made without asking. Each was
+  explained in the build summary:
+  - **Leaning on Django's own case-insensitive username check** at
+    sign-up instead of writing one. The database constraint is the real
+    guarantee, and phase 7's rename form will need its own check.
+  - **A separate `@` validator** with its own message, kept alongside
+    Django's validator rather than replacing it with a narrower regex, so
+    the error tells the user why `@` is refused.
+  - **Overriding `User.clean()`** to keep the email's domain as typed.
+    Django's default would have stored `Casey@example.com` for
+    `Casey@Example.com`.
+  - **Testing the migration for real.** The tests roll accounts back to
+    0003 with `MigrationExecutor`, insert duplicates through the
+    historical model, migrate forward and restore the schema afterwards.
+    This needs a transactional database and adds a few seconds, but it
+    tests the actual migration rather than a copy of its function.
+  - **Ticking the plan's checkboxes**, following what the phase 1 commit
+    did.
+
+  One gap was flagged rather than fixed: the admin has no form-level
+  email check yet, so a duplicate entered there shows the constraint's
+  message as a form-wide error. Phase 17 covers admin edits.
+
+- **Sideways:**
+  - **A failed source lookup.** The first attempt to locate Django's
+    auth source ran `python -c "import django.contrib.auth.forms"`
+    outside Django's settings and crashed with `ImproperlyConfigured`.
+    The traceback still printed the path, and the source was grepped
+    directly from `.venv` instead.
+  - **A loose test, tightened before it ran.** The model-validation test
+    was first written with `pytest.raises(Exception, ...)` and narrowed
+    to `ValidationError` before the first run.
+  - **Line endings.** Adding the email to the existing tests with `sed`
+    produced Git's LF-to-CRLF warnings. They are harmless.
+  - **`PROMPTS.md` at the end of the build.** The build summary said the
+    log had been left alone "since that log looks like your own
+    write-up." The real reason is this file's rule that entries are added
+    only when asked, which prompt 3 then did.
+  - **No browser.** The agent didn't check anything in a browser. The
+    walkthrough in prompt 2 is untested by the agent, and the
+    migration's duplicate check can only be seen through the tests.
+  - **`seed` not run.** It still needs to run before `db.sqlite3` is
+    committed, as phase 18 requires.
+
 ## 2026-10-07 — Account security, Phase 1: the audit log tracer
 
 ### Prompts

@@ -132,14 +132,14 @@ or renames them. `SignupForm`'s "No email" docstring is updated.
 
 ### Acceptance criteria
 
-- [ ] Sign-up without an email is refused with a field error.
-- [ ] Sign-up with `Casey@Example.com` is refused when `casey@example.com`
+- [x] Sign-up without an email is refused with a field error.
+- [x] Sign-up with `Casey@Example.com` is refused when `casey@example.com`
       exists, and the email is stored as entered.
-- [ ] Sign-up with a username containing `@`, or one differing from an
+- [x] Sign-up with a username containing `@`, or one differing from an
       existing username only by case, is refused.
-- [ ] Two existing accounts with blank emails don't violate the
+- [x] Two existing accounts with blank emails don't violate the
       constraint.
-- [ ] The migration's duplicate check fails with the offending values
+- [x] The migration's duplicate check fails with the offending values
       named, and passes on clean data.
 
 ---
