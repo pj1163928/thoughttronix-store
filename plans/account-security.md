@@ -183,17 +183,37 @@ no user and no identifier, only the IP. No failure ever sends mail.
 
 ### Acceptance criteria
 
-- [ ] After five wrong passwords in 15 minutes, the correct password is
+- [x] After five wrong passwords in 15 minutes, the correct password is
       refused.
-- [ ] The cooldown ends on its own once the oldest failure is more than
+- [x] The cooldown ends on its own once the oldest failure is more than
       15 minutes old (tested with a fixed clock).
-- [ ] Attempts made during a cooldown don't extend it.
-- [ ] A successful sign-in resets the count.
-- [ ] Wrong password, unknown account and cooldown produce byte-identical
+- [x] Attempts made during a cooldown don't extend it.
+- [x] A successful sign-in resets the count.
+- [x] Wrong password, unknown account and cooldown produce byte-identical
       messages.
-- [ ] An unknown-identifier failure is stored with null user, no
+- [x] An unknown-identifier failure is stored with null user, no
       identifier anywhere in the row, and the IP.
-- [ ] No email is sent for any failed sign-in.
+- [x] No email is sent for any failed sign-in.
+
+### Amended 2026-10-07: escalating pauses
+
+Per the PRD's amendment of the same date: pauses escalate 15 → 30 → 60
+minutes, the sign-in page shows a per-browser attempts-left line, and the
+owner gets one email when a pause starts. This replaces two criteria
+above: a pause now runs for a fixed time from the failure that started
+it, and a failed sign-in that starts a pause now sends one email. The
+alert-email helper that phase 6 was to build exists now
+(`security.send_alert`); phase 6 reuses it.
+
+- [x] After a pause ends, one failure starts the next, doubling to an
+      hour and staying there.
+- [x] The ladder restarts after a successful sign-in, a cleared cooldown,
+      or 24 hours without a pause.
+- [x] Starting a pause records a "sign-in paused" event with its length,
+      and emails the owner once. Email-less accounts are skipped.
+- [x] The page's attempts-left and paused lines read identically for a
+      real account and an unknown username, and never store what was
+      typed.
 
 ---
 
@@ -237,9 +257,9 @@ see a banner asking them to add one. The navbar's "Addresses" link becomes
 This phase builds three shared pieces that later phases reuse. The
 session key field on `User` is mixed into the session auth hash. The
 "Current password" re-authentication field is wired into the cooldown, so
-wrong answers count toward it. The alert-email helper says what happened
-and when, ends "Wasn't you? Contact support." and skips email-less
-accounts. Using them, the change-password page keeps this session signed
+wrong answers count toward it. The alert-email helper (already built as
+`security.send_alert` by phase 4's amendment) says what happened and
+when, ends "Wasn't you? Contact support." and skips email-less accounts. Using them, the change-password page keeps this session signed
 in, signs out every other session, records the event and sends an alert.
 The "Sign out of all other devices" button on the hub takes the current
 password, rotates the session key and records its event.

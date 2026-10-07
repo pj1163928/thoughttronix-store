@@ -30,6 +30,146 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 4, part two: escalating pauses
+
+### Prompts
+
+1. "How can I test this in a browser"
+2. "Ok I tried tripping the message but I do not have a notification of a
+   locked account or how many attempts I have left can you add those
+   features and notify the user that there account has been locked out.
+   Also can you make it tiered so that if after 15 minutes they try to
+   use a wrong random password it will increase the time it locks out
+   more and more"
+3. "add the chat logs to PROMPTS.md if not already"
+
+### Summary
+
+- **Outcome:** Prompt 1 changed no code. It produced a browser
+  walkthrough using `customer` (not `admin`, after phase 3's lockout),
+  with a Django shell snippet to clear a cooldown, since the admin's
+  "clear cooldown" action doesn't arrive until phase 16.
+
+  Prompt 2 reworked the cooldown. The PRD has a dated amendment and
+  phase 4 of the plan an amended section with four new criteria:
+  - **Escalation.** A pause now lasts a fixed time from the failure that
+    started it. After it ends, one more failure starts the next: 15, 30,
+    60, then 60 minutes. The ladder restarts after a successful sign-in,
+    a cleared cooldown, or 24 hours without a pause. A new
+    `SecurityEvent` kind, "Sign-in paused" (`cooldown_started`, migration
+    `0005`), records each pause and its length, which is how the ladder
+    knows its rung.
+  - **The page.** The refusal message is now just "Those details didn't
+    work." Below it, the page says "N attempts left before sign-in
+    pauses for M minutes" or "Sign-in is paused — try again in N
+    minutes". That line comes from `note_refused_sign_in`, which runs the
+    same rule against this browser's session history, keyed by an HMAC
+    of what was typed. An unknown username counts down exactly as a real
+    one does.
+  - **The email.** `security.send_alert` and
+    `templates/accounts/email/alert.txt` were built early (phase 6 had
+    them). `record_failure` sends one alert when a pause starts.
+  - **One rule, two histories.** `_standing` and `_pause_earned` are pure
+    functions over a list of failures and pauses, so the account (from
+    the audit log) and the browser (from the session) can't apply
+    different rules. `record_event` gained an `at` argument to pin the
+    clock.
+
+  The suite went from 554 to 572 tests. `accounts/test_cooldown.py` was
+  rewritten from 21 tests to 39, because the first pause's end and the
+  refusal message both changed meaning. Ruff is clean. Nothing was
+  committed.
+
+- **Deviations:** the request as worded would have reversed three PRD
+  decisions, each with a security cost: real attempt counts would show
+  which accounts exist, emails on every failure would let strangers fill
+  an inbox, and uncapped escalation would let a stranger lock a customer
+  out for as long as they liked. The agent asked rather than built, and
+  offered a safer version of each. The user picked all three
+  recommendations: a per-browser counter, one email per pause, and
+  doubling capped at an hour. One detail differs from how the option was
+  worded: it said the ladder resets after "24 hours with no failures",
+  but it was built as "no pause started in the last 24 hours", which is
+  simpler to compute. With the one-hour cap the two behave almost the
+  same.
+
+- **Sideways:**
+  - **A known gap, by design.** The page's count can differ from the
+    account's when the attempts came from another browser, or when one
+    person alternates between their username and their email (the
+    browser counts those separately; the account counts them together).
+    The account is always the one enforced.
+  - **The vocabulary.** The page and the email say "paused", not
+    "locked". In the PRD "locked" means an admin has set
+    `is_active = False`, which is permanent until undone.
+  - **No browser check.** The agent didn't run this in a browser. The
+    build summary for prompt 2 ended with an updated five-step
+    walkthrough, including running `migrate` for the new event type.
+  - **Prompt 3** found every prompt already logged here and in the
+    phase 4 entry below. It added itself to the list and changed nothing
+    else.
+
+## 2026-10-07 — Account security, Phase 4: sign-in cooldown
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 4"
+
+### Summary
+
+- **Outcome:** Phase 4 of `plans/account-security.md` was built and its
+  seven acceptance criteria ticked:
+  - **The rule.** `accounts/security.py` gained `counted_failures()`,
+    `cooldown_ends_at()` and `is_cooling_down()`, with docstrings and
+    type hints. The count is a query on `SecurityEvent`: wrong passwords
+    and wrong two-factor codes in the last 15 minutes, after the latest
+    successful sign-in or cleared cooldown. With five or more, the
+    cooldown ends when the fifth-newest failure ages out (the oldest,
+    when there are exactly five). Each function takes an optional `now`,
+    which is how the tests pin the clock.
+  - **The backend.** During a cooldown, `UsernameOrEmailBackend` refuses
+    without checking the password and without recording a failure. It
+    still runs the hasher, so a cooldown takes as long to refuse as a
+    wrong password.
+  - **The message.** `SignInForm` replaces Django's "Please enter a
+    correct username and password" with the PRD's wording. The "15
+    minutes" in it is computed from `COOLDOWN_WINDOW`, so the two can't
+    drift apart.
+
+  The suite went from 533 to 554 tests (21 new in
+  `accounts/test_cooldown.py`). Sixteen failed before the change. The
+  other five passed both before and after, because they guard behaviour
+  that already held: the cooldown ending, a successful sign-in resetting
+  the count, the unknown-identifier row and no mail sent. Ruff is clean.
+  Nothing was committed.
+
+- **Deviations:** no recommendations were offered, so none were
+  overridden, and no questions were asked. One judgment call changed
+  earlier phases' design. **Failed sign-ins are now recorded by the
+  backend, not by a `user_login_failed` receiver.** Django sends that
+  signal for a cooldown refusal exactly as it does for a wrong password,
+  so a receiver couldn't tell which one to record. Checking "is the
+  account cooling down?" in the receiver would have nearly worked, but
+  an attempt landing as the cooldown ended could be recorded unchecked
+  and restart it. The backend is the only place that knows why it said
+  no, and every sign-in path, the admin's included, goes through it.
+  `accounts/signals.py` now handles only successful sign-ins, and its
+  docstring says why.
+
+- **Sideways:**
+  - **No time-freezing library.** Neither `freezegun` nor `time-machine`
+    is installed, and `SecurityEvent.created_at`'s default holds a direct
+    reference to `timezone.now`, so patching it would have had no effect
+    on new rows. Rather than add a dependency, the rule's tests pass a
+    fixed `now`, and the page-level tests backdate failures by writing
+    `created_at`.
+  - **The admin's sign-in page** gets the cooldown, because it goes
+    through the same backend, but keeps Django's own refusal message. It
+    shows that one message for all three cases, so it reveals nothing.
+    Restyling the admin's wording wasn't in the phase.
+  - **`seed` not run.** It still needs to run before `db.sqlite3` is
+    committed, as phase 18 requires.
+
 ## 2026-10-07 — Account security, Phase 3: username-or-email sign-in
 
 ### Prompts

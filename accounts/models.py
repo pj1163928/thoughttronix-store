@@ -192,6 +192,7 @@ class SecurityEvent(models.Model):
         RECOVERY_CODE_USED = "recovery_code_used", "Recovery code used"
         ACCOUNT_LOCKED = "account_locked", "Account locked"
         ACCOUNT_UNLOCKED = "account_unlocked", "Account unlocked"
+        COOLDOWN_STARTED = "cooldown_started", "Sign-in paused"
         COOLDOWN_CLEARED = "cooldown_cleared", "Sign-in cooldown cleared"
         OTHER_SESSIONS_ENDED = "other_sessions_ended", "Signed out of other devices"
 

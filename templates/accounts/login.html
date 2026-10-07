@@ -17,6 +17,16 @@
             <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
           {% endfor %}
 
+          {% if standing.paused_until %}
+            <div class="alert alert-warning" role="status">
+              <span>Too many failed attempts. Sign-in is paused — try again in {{ standing.paused_minutes }} minute{{ standing.paused_minutes|pluralize }}.</span>
+            </div>
+          {% elif standing %}
+            <p class="text-sm text-warning" role="status">
+              {{ standing.attempts_left }} attempt{{ standing.attempts_left|pluralize }} left before sign-in pauses for {{ standing.next_pause_minutes }} minutes.
+            </p>
+          {% endif %}
+
           {% for field in form %}
             <div>
               <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>

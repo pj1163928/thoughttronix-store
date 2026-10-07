@@ -44,7 +44,18 @@ class SignInForm(AuthenticationForm):
     The ``username`` field takes a username or an email; the backend
     decides which. Its length is widened from the username's limit to an
     email's.
+
+    Every refusal reads the same: a wrong password, an account that
+    doesn't exist, a locked account and a cooldown all come back from the
+    backend as "no user", and all show one message. The attempts-left line
+    beneath it comes from ``SignInView``, out of this browser's own
+    history, so it doesn't say whether the account exists either.
     """
+
+    error_messages = {
+        **AuthenticationForm.error_messages,
+        "invalid_login": "Those details didn't work.",
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

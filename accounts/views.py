@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.messages.views import SuccessMessageMixin
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
@@ -34,8 +35,29 @@ class SignupView(SuccessMessageMixin, CreateView):
 
 
 class SignInView(LoginView):
+    """Sign in, and say how many attempts are left after a refusal.
+
+    The count shown is this browser's, kept by ``accounts.security``
+    against whatever was typed. It is never the account's own, which
+    would tell a stranger which usernames exist.
+    """
+
     template_name = "accounts/login.html"
     authentication_form = SignInForm
+
+    def form_valid(self, form):
+        security.forget_sign_in_attempts(self.request.session)
+        return super().form_valid(form)
+
+    def form_invalid(self, form):
+        standing = None
+        if form.has_error(NON_FIELD_ERRORS, "invalid_login"):
+            standing = security.note_refused_sign_in(
+                self.request.session, form.cleaned_data["username"]
+            )
+        return self.render_to_response(
+            self.get_context_data(form=form, standing=standing)
+        )
 
 
 class SignOutView(LogoutView):

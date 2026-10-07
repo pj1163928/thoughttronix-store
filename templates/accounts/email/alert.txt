@@ -1,0 +1,10 @@
+{% autoescape off %}Hi {{ user.get_username }},
+
+{{ what_happened }}
+
+This happened at {{ when }}.
+
+Wasn't you? Contact support.
+
+— The ThoughtTronix Store
+{% endautoescape %}

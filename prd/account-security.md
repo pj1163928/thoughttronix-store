@@ -440,3 +440,42 @@ are.
   8. The migration's duplicate check.
   Generate TOTP codes in tests with `pyotp` from the test device's
   secret, and use a fixed clock rather than sleeping.
+
+---
+
+## Amendment — escalating sign-in pauses (2026-10-07)
+
+Made after phase 4 was built, at the user's request, once they had tried
+the cooldown in a browser and found it gave no sense of how many attempts
+were left or that the account had been paused. Three decisions above are
+changed. The rest of the PRD stands.
+
+- **Escalation (replaces the fixed cooldown; changes story 16).** Five
+  failures within 15 minutes still start the first pause, but a pause
+  now lasts a fixed time from the failure that started it, rather than
+  until the oldest failure ages out. Once a pause has ended, a single
+  further failure starts the next one: 15, then 30, then 60 minutes, and
+  60 from then on. The ladder starts again after a successful sign-in, a
+  "cooldown cleared" event, or when no pause has started in the last 24
+  hours. Story 17 still holds: every pause ends on its own, and the
+  one-hour cap bounds how long a stranger can keep someone out. Attempts
+  refused during a pause are still neither checked nor recorded.
+- **A new event type, "sign-in paused"** (`cooldown_started`), is recorded
+  when a pause starts, with its length in `details`. It is how the ladder
+  knows which rung it is on, and it shows the admin when an account was
+  paused.
+- **What the sign-in page says (refines the cooldown message).** Every
+  refusal still shows one identical message, now just "Those details
+  didn't work." Below it, the page says how many attempts are left, or
+  that sign-in is paused and for how many more minutes. That line is
+  built from **this browser's own history**, kept in its session against
+  a keyed hash of what was typed, and never from the account's. An
+  unknown username therefore counts down exactly as a real one does, and
+  the page still doesn't reveal which accounts exist. The account's own
+  history alone decides whether a sign-in is allowed, so the two can
+  differ when attempts came from another browser.
+- **One email per pause (changes story 38).** When a pause starts, the
+  owner is emailed once, saying for how long and when they can sign in
+  again, through the same alert helper and wording as every other alert.
+  Ordinary failed sign-ins still never send mail, so a stranger can
+  trigger at most one email per pause.
