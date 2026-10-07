@@ -30,6 +30,63 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 7: change username
+
+### Prompts
+
+1. "@plans/account-security.md @prd/account-security.md Implement phase 7"
+2. "how can I test this within the browser"
+3. "Append this session to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 7 of `plans/account-security.md` and
+  ticked its four acceptance criteria:
+  - **The page.** `/accounts/username/` (`accounts:change_username`) asks
+    for the current password, then the new username. The Account page's
+    Profile card gained a "Change username" button.
+  - **The form.** `ChangeUsernameForm` is built on phase 6's
+    `ReauthenticationForm`, so a wrong password counts toward the
+    cooldown, and while the account is paused nothing is checked. The new
+    name is run through the username model field's own validators (no
+    `@`) and refused if another account has it in any capitalisation.
+    Recapitalising your own name is allowed.
+  - **The trail.** `security.username_changed` records the event with
+    `{"old": …, "new": …}` in `details` and sends the alert. It takes an
+    `actor`, so phase 17's admin edit can reuse it.
+  - **Staying signed in.** The username isn't part of the session auth
+    hash, so a rename signs no device out. A test checks a second browser
+    stays signed in.
+
+  The suite went from 644 to 665 tests, all 21 new ones in
+  `accounts/test_change_username.py`. Ruff is clean and no migration was
+  needed. Nothing was committed.
+
+  Prompt 2 changed no code. It produced a browser walkthrough using the
+  seeded `customer`: names that should be refused (a seeded customer's
+  name in capitals, an `@`, a space, the current name), a wrong password
+  and the five-failure pause, a real rename with its alert in the
+  `runserver` terminal, a second browser that stays signed in, signing in
+  with the new name, and the event in the admin. `seed` cleans up.
+
+- **Deviations:** no questions were asked; the agent proceeded on
+  defaults and reported them:
+  - **The current username is refused** ("That's already your
+    username."), so a no-op can't log an event or send an email.
+  - **The form doesn't touch the user until it saves.** A `ModelForm` on
+    `request.user` would have written a refused name onto the user while
+    validating, and the navbar would have shown it on the re-rendered
+    page. A test covers this.
+  - **Wrong re-auth passwords stay "Sign-in failed"**, with
+    `change_username` in `details`, as phase 6 decided.
+
+- **Sideways:** Nothing broke. Every new test passed on its first run,
+  and the full suite stayed green. `ruff format` reflowed four files after
+  that run, so the `accounts` tests (221) were run again and passed. The
+  pages weren't opened in a
+  browser by the agent; prompt 2's walkthrough is how they're meant to be
+  checked. `seed` still needs to run before `db.sqlite3` is committed.
+
 ## 2026-10-07 — Account security, Phase 6: change password, sign out other devices, and a device list
 
 *The same session as the Phase 5 entry below, continued; its first three

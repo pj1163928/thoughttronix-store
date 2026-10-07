@@ -311,12 +311,12 @@ sends an alert.
 
 ### Acceptance criteria
 
-- [ ] A valid rename takes effect immediately, and the user stays signed
+- [x] A valid rename takes effect immediately, and the user stays signed
       in.
-- [ ] Renames that collide case-insensitively or contain `@` are refused.
-- [ ] A wrong current password refuses the change and counts toward the
+- [x] Renames that collide case-insensitively or contain `@` are refused.
+- [x] A wrong current password refuses the change and counts toward the
       cooldown.
-- [ ] The event's `details` hold the old and new usernames, and an alert
+- [x] The event's `details` hold the old and new usernames, and an alert
       is sent.
 
 ---

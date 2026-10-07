@@ -3,6 +3,7 @@ from django.contrib.auth.forms import (
     AuthenticationForm,
     SetPasswordMixin,
     UserCreationForm,
+    UsernameField,
 )
 from django.template.defaultfilters import pluralize
 
@@ -139,6 +140,47 @@ class PasswordChangeForm(SetPasswordMixin, ReauthenticationForm):
 
     def save(self, commit=True):
         return self.set_password_and_save(self.user, "new_password1", commit=commit)
+
+
+class ChangeUsernameForm(ReauthenticationForm):
+    """The current password, then the new username.
+
+    The new name is held to sign-up's rules: the model field's own
+    validators (so no ``@``), and no other account's username in any
+    capitalisation. Recapitalising your own username is allowed; the
+    name you already have is refused, since it would change nothing.
+
+    The form never touches ``user`` until ``save``, so an invalid name
+    can't leak into the rest of the page through ``request.user``.
+    """
+
+    purpose = "change_username"
+
+    username = UsernameField(
+        label="New username",
+        max_length=User._meta.get_field("username").max_length,
+        help_text=User._meta.get_field("username").help_text,
+        widget=forms.TextInput(attrs={"autocomplete": "username"}),
+    )
+
+    def clean_username(self):
+        username = self.cleaned_data["username"]
+        User._meta.get_field("username").run_validators(username)
+        if username == self.user.username:
+            raise forms.ValidationError(
+                "That's already your username.", code="unchanged"
+            )
+        taken = User.objects.filter(username__iexact=username).exclude(pk=self.user.pk)
+        if taken.exists():
+            raise forms.ValidationError(
+                "A user with that username already exists.", code="unique"
+            )
+        return username
+
+    def save(self):
+        self.user.username = self.cleaned_data["username"]
+        self.user.save(update_fields=["username"])
+        return self.user
 
 
 class SignOutOthersForm(ReauthenticationForm):

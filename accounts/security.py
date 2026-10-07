@@ -8,8 +8,9 @@ recovery codes, the sign-in cooldown and alert emails; they arrive phase
 by phase. What it holds today is the foundation the rest is built on,
 recording a ``SecurityEvent``, the sign-in cooldown built on top of it,
 the alert email, "prove it's you": the current-password check that
-guards every sensitive change, with the password change and "sign out of
-all other devices" it guards, and the list of signed-in devices that
+guards every sensitive change, with the password change, the username
+change and "sign out of all other devices" it guards, and the list of
+signed-in devices that
 lets one be signed out at a time.
 
 The audit log is the source of truth for more than the admin's history
@@ -412,6 +413,42 @@ def password_changed(user: User, *, request: HttpRequest | None = None) -> None:
         (
             "The password for your ThoughtTronix account was changed, and "
             "every other device signed in to it was signed out."
+        ),
+    )
+
+
+def username_changed(
+    user: User,
+    old_username: str,
+    *,
+    actor: User | None = None,
+    request: HttpRequest | None = None,
+) -> None:
+    """Record that ``user`` was renamed from ``old_username``, and tell them.
+
+    Call after the new username is saved. ``actor`` is whoever made the
+    change and defaults to ``user`` themselves; an admin's edit passes the
+    admin. The event's ``details`` hold both names, and its username
+    snapshot is the new one.
+
+    A rename signs nobody out: the username isn't part of the session
+    auth hash, and sign-in looks accounts up afresh each time.
+    """
+    new_username = user.get_username()
+    record_event(
+        Kind.USERNAME_CHANGED,
+        user,
+        actor=actor or user,
+        request=request,
+        details={"old": old_username, "new": new_username},
+    )
+    send_alert(
+        user,
+        "Your username was changed",
+        (
+            f"The username for your ThoughtTronix account was changed from "
+            f'"{old_username}" to "{new_username}". Sign in with the new '
+            f"username or your email address from now on."
         ),
     )
 

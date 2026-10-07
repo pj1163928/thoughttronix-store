@@ -17,6 +17,7 @@ from django.views.generic import (
 from . import security
 from .forms import (
     AddressForm,
+    ChangeUsernameForm,
     PasswordChangeForm,
     SignInForm,
     SignOutDeviceForm,
@@ -169,6 +170,35 @@ class SignOutDeviceView(LoginRequiredMixin, FormView):
             self.request.user, self.user_session, request=self.request
         )
         messages.success(self.request, f"Signed out {self.user_session.label}.")
+        return super().form_valid(form)
+
+
+class ChangeUsernameView(LoginRequiredMixin, FormView):
+    """Rename the account, after the current password.
+
+    The username plays no part in the session auth hash, so this session
+    and every other one stay signed in. Recording and the alert are
+    ``accounts.security``'s.
+    """
+
+    form_class = ChangeUsernameForm
+    template_name = "accounts/change_username.html"
+    success_url = reverse_lazy("accounts:account")
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def form_valid(self, form):
+        old_username = self.request.user.get_username()
+        user = form.save()
+        security.username_changed(user, old_username, request=self.request)
+        messages.success(
+            self.request, f"Username changed. You're now {user.get_username()}."
+        )
         return super().form_valid(form)
 
 
