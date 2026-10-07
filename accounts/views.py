@@ -4,7 +4,13 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import NON_FIELD_ERRORS
 from django.urls import reverse_lazy
-from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+from django.views.generic import (
+    CreateView,
+    DeleteView,
+    ListView,
+    TemplateView,
+    UpdateView,
+)
 
 from . import security
 from .forms import AddressForm, SignInForm, SignupForm
@@ -67,6 +73,30 @@ class SignOutView(LogoutView):
         response = super().post(request, *args, **kwargs)
         messages.info(request, "You have signed out.")
         return response
+
+
+# --- The Account page -------------------------------------------------------
+
+
+class AccountView(LoginRequiredMixin, TemplateView):
+    """The account at a glance: one card per thing that can be checked.
+
+    Each card that can change something links to its own small page; this
+    one only reads. The activity card shows the user's own events and
+    nobody else's, newest first.
+    """
+
+    template_name = "accounts/account.html"
+    activity_limit = 10
+
+    def get_context_data(self, **kwargs):
+        user = self.request.user
+        return super().get_context_data(
+            password_last_changed=user.password_last_changed,
+            address_count=user.addresses.count(),
+            events=user.security_events.all()[: self.activity_limit],
+            **kwargs,
+        )
 
 
 # --- The address book -------------------------------------------------------

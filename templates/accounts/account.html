@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+
+{% block title %}Your Account — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <h1 class="text-3xl font-bold">Your Account</h1>
+  <p class="mt-2 opacity-70">Everything about your account, in one place.</p>
+
+  {% if not user.email %}
+    <div class="alert alert-warning mt-6" role="alert">
+      <span>
+        Your account has no email address, so a forgotten password can't be
+        recovered. Add one to keep your account safe.
+      </span>
+    </div>
+  {% endif %}
+
+  <div class="mt-6 grid gap-4 sm:grid-cols-2">
+    <section class="card bg-base-100 shadow-md" aria-labelledby="profile-heading">
+      <div class="card-body">
+        <h2 id="profile-heading" class="card-title text-base">Profile</h2>
+        <dl class="space-y-2 text-sm">
+          <div>
+            <dt class="opacity-70">Username</dt>
+            <dd class="font-semibold">{{ user.username }}</dd>
+          </div>
+          <div>
+            <dt class="opacity-70">Email</dt>
+            <dd class="font-semibold">
+              {% if user.email %}{{ user.email }}{% else %}<span class="italic opacity-70">None</span>{% endif %}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md" aria-labelledby="password-heading">
+      <div class="card-body">
+        <h2 id="password-heading" class="card-title text-base">Password</h2>
+        <p class="text-sm">
+          {% if password_last_changed %}
+            Last changed
+            <time datetime="{{ password_last_changed|date:'c' }}">{{ password_last_changed|date:"j M Y, H:i T" }}</time>
+          {% else %}
+            Never changed
+          {% endif %}
+        </p>
+      </div>
+    </section>
+
+    <section class="card bg-base-100 shadow-md" aria-labelledby="addresses-heading">
+      <div class="card-body">
+        <h2 id="addresses-heading" class="card-title text-base">Addresses</h2>
+        <p class="text-sm">
+          {% if address_count %}
+            {{ address_count }} saved address{{ address_count|pluralize:"es" }}, offered at checkout.
+          {% else %}
+            No saved addresses yet.
+          {% endif %}
+        </p>
+        <div class="card-actions mt-2 justify-end">
+          <a href="{% url 'accounts:addresses' %}" class="btn btn-ghost btn-sm">Manage addresses</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="card mt-4 bg-base-100 shadow-md" aria-labelledby="activity-heading">
+    <div class="card-body">
+      <h2 id="activity-heading" class="card-title text-base">Recent security activity</h2>
+      {% if events %}
+        <p class="text-sm opacity-70">
+          Your last {{ events|length }} security event{{ events|length|pluralize }}.
+          See something you didn't do? Change your password and contact support.
+        </p>
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>What happened</th>
+                <th>When</th>
+                <th>From</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for event in events %}
+                <tr>
+                  <td>
+                    {{ event.get_kind_display }}
+                    {% if event.by_support %}<span class="opacity-70">by ThoughtTronix support</span>{% endif %}
+                  </td>
+                  <td class="whitespace-nowrap">
+                    <time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"j M Y, H:i T" }}</time>
+                  </td>
+                  <td class="font-mono">{{ event.ip_address|default:"Unknown" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="py-8 text-center">
+          <p class="text-4xl">🛡️</p>
+          <p class="mt-2 font-semibold">No security activity yet</p>
+          <p class="mt-1 text-sm opacity-70">
+            Sign-ins and changes to your account will be listed here.
+          </p>
+        </div>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

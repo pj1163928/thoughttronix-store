@@ -30,6 +30,79 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 5: the Account page and navigation
+
+### Prompts
+
+1. "@plans/account-security.md @prd/account-security.md Implement phase 5"
+2. "How can I test this in the browser"
+3. "Append the session conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Phase 5 of `plans/account-security.md` was built and its
+  six acceptance criteria ticked:
+  - **The page.** `AccountView` at `/accounts/` (`accounts:account`)
+    requires sign-in, and anonymous visitors go to sign-in with `next`
+    set. `templates/accounts/account.html` has four cards:
+    - **Profile:** username and email.
+    - **Password:** "Last changed …" or "Never changed".
+    - **Addresses:** a count, and a link to the address book, which is
+      unchanged.
+    - **Recent security activity:** the user's own last 10 events, newest
+      first, with what happened, when and the IP. It has a designed empty
+      state.
+
+    Accounts with a blank email see a banner asking them to add one.
+  - **The model side.** `User.password_last_changed` reads the newest
+    password-changed or reset-completed event through a new
+    `SecurityEventQuerySet.password_changes()`. There is no new column.
+    `SecurityEvent.by_support` is true only when someone other than the
+    owner acted. The template reads that and never `actor`, so the page
+    can't name an admin. Events with no actor, such as a failed sign-in,
+    aren't marked as support.
+  - **The navbar.** "Addresses" became "Account".
+
+  The suite went from 572 to 590 tests, all 18 new ones in
+  `accounts/test_account_hub.py`. The admin-override test uses a
+  distinctive username and email so their absence from the page proves
+  something. Ruff is clean, and `makemigrations --check` found nothing,
+  because the custom manager isn't used in migrations. Nothing was
+  committed.
+
+  Prompt 2 changed no code. It produced a browser walkthrough:
+  - **Start clean:** `seed`, then `tailwind runserver`. The watcher is
+    needed because the hub uses classes no earlier page did.
+  - **Check the page:** the redirect and the navbar, then a few deliberate
+    wrong passwords (fewer than five) to fill the activity card.
+  - **Shell-written events:** a password change and an admin-cleared
+    cooldown, because neither can be triggered from the UI until phases 6
+    and 16. Twelve "Signed in" events check the cap. The walkthrough used
+    those rather than failures, which would have paused the account.
+  - **The banner:** blanking the email shows it.
+  - **Clean up:** a final `seed`, because the shell events land in the
+    committed `db.sqlite3`.
+
+- **Deviations:** no recommendations were offered and no questions were
+  asked. Two parts of the phase description were left for the phases that
+  make them possible:
+  - **The verified badge.** The phase lists one on the Profile card, but
+    the email-verified timestamp doesn't exist until phase 8, whose own
+    criteria cover the badge.
+  - **The banner's link.** It has no "add an email" link, and the Profile
+    card has no change links, until phases 7 and 9 build those pages.
+
+- **Sideways:**
+  - **A PROMPTS.md entry almost went in unprompted.** The agent was about
+    to add one after the build, as earlier phases had, but read this
+    file's rule that entries are added only on request and left it out.
+    This entry is the result of prompt 3.
+  - **Ruff format.** It reformatted two files after the first run.
+  - **No browser check.** The agent didn't open the page itself. Prompt
+    2's walkthrough is how it's meant to be checked.
+  - **`seed` not run.** It still needs to run before `db.sqlite3` is
+    committed, as phase 18 requires.
+
 ## 2026-10-07 — Account security, Phase 4, part two: escalating pauses
 
 ### Prompts

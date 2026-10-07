@@ -235,16 +235,16 @@ see a banner asking them to add one. The navbar's "Addresses" link becomes
 
 ### Acceptance criteria
 
-- [ ] Anonymous visitors are redirected to sign in.
-- [ ] The navbar shows "Account" linking to `accounts:account` and no
+- [x] Anonymous visitors are redirected to sign in.
+- [x] The navbar shows "Account" linking to `accounts:account` and no
       longer shows "Addresses".
-- [ ] The activity card shows only the signed-in user's events, newest
+- [x] The activity card shows only the signed-in user's events, newest
       first, capped at 10.
-- [ ] An event whose actor is an admin reads "by ThoughtTronix support"
+- [x] An event whose actor is an admin reads "by ThoughtTronix support"
       and never contains the admin's username.
-- [ ] The Password card reads "Never changed" when no qualifying event
+- [x] The Password card reads "Never changed" when no qualifying event
       exists.
-- [ ] An account with a blank email sees the add-email banner.
+- [x] An account with a blank email sees the add-email banner.
 
 ---
 

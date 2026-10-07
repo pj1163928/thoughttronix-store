@@ -145,6 +145,30 @@ class User(AbstractUser):
         super().clean()
         self.email = email
 
+    @property
+    def password_last_changed(self):
+        """When the password was last changed or reset, or ``None`` if never.
+
+        Read from the audit log rather than a column of its own, so it
+        can't disagree with the history the Account page shows beside it.
+        """
+        return (
+            self.security_events.password_changes()
+            .values_list("created_at", flat=True)
+            .first()
+        )
+
+
+class SecurityEventQuerySet(models.QuerySet):
+    def password_changes(self):
+        """Events that set a new password: a change, or a completed reset."""
+        return self.filter(
+            kind__in=[
+                SecurityEvent.Kind.PASSWORD_CHANGED,
+                SecurityEvent.Kind.PASSWORD_RESET_COMPLETED,
+            ]
+        )
+
 
 class SecurityEvent(models.Model):
     """One line of the security audit log: what happened to an account.
@@ -223,6 +247,8 @@ class SecurityEvent(models.Model):
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     details = models.JSONField(default=dict, blank=True)
 
+    objects = SecurityEventQuerySet.as_manager()
+
     class Meta:
         ordering = ["-created_at", "-pk"]
         indexes = [
@@ -234,6 +260,17 @@ class SecurityEvent(models.Model):
     def __str__(self):
         who = self.username or "unknown account"
         return f"{self.get_kind_display()} — {who}"
+
+    @property
+    def by_support(self):
+        """Whether someone other than the owner did this — an admin override.
+
+        The Account page shows such events as "by ThoughtTronix support"
+        and never names the admin, so templates read this rather than
+        ``actor``. An event with no actor (a failed sign-in, a server-side
+        command) isn't support acting, and reads as plain history.
+        """
+        return self.actor_id is not None and self.actor_id != self.user_id
 
 
 class AddressQuerySet(models.QuerySet):
