@@ -1,3 +1,6 @@
+import secrets
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.models import UserManager as DjangoUserManager
@@ -5,6 +8,7 @@ from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models, transaction
 from django.db.models.functions import Lower
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from .validators import username_no_at_validator, zip_validator
 
@@ -117,6 +121,10 @@ class User(AbstractUser):
     )
     # Nullable per the PRD: an absent job title is unknown, not empty.
     job_title = models.CharField(max_length=150, null=True, blank=True)  # noqa: DJ001
+    # Mixed into the session auth hash beside the password, so rotating it
+    # signs out every session that isn't refreshed — exactly as a password
+    # change does, without changing the password. Not a secret.
+    session_key = models.CharField(max_length=32, blank=True, editable=False)
 
     objects = UserManager()
 
@@ -144,6 +152,27 @@ class User(AbstractUser):
         email = self.email
         super().clean()
         self.email = email
+
+    def _get_session_auth_hash(self, secret=None):
+        # Django's own hash covers the password alone; adding the session
+        # key lets ``rotate_session_key`` end other sessions too. Both
+        # ``get_session_auth_hash`` and its ``SECRET_KEY_FALLBACKS``
+        # variant come through here.
+        return salted_hmac(
+            "accounts.User.get_session_auth_hash",
+            f"{self.password}:{self.session_key}",
+            secret=secret,
+            algorithm="sha256",
+        ).hexdigest()
+
+    def rotate_session_key(self):
+        """Invalidate every session signed in as this user.
+
+        The caller keeps its own session by passing the request to
+        ``update_session_auth_hash`` afterwards.
+        """
+        self.session_key = secrets.token_hex(16)
+        self.save(update_fields=["session_key"])
 
     @property
     def password_last_changed(self):
@@ -219,6 +248,7 @@ class SecurityEvent(models.Model):
         COOLDOWN_STARTED = "cooldown_started", "Sign-in paused"
         COOLDOWN_CLEARED = "cooldown_cleared", "Sign-in cooldown cleared"
         OTHER_SESSIONS_ENDED = "other_sessions_ended", "Signed out of other devices"
+        SESSION_ENDED = "session_ended", "Signed out a device"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -271,6 +301,99 @@ class SecurityEvent(models.Model):
         command) isn't support acting, and reads as plain history.
         """
         return self.actor_id is not None and self.actor_id != self.user_id
+
+
+class UserSessionQuerySet(models.QuerySet):
+    def active(self, now=None):
+        """Sessions used within the session lifetime, most recently used first.
+
+        A session left idle for ``SESSION_COOKIE_AGE`` has expired (each
+        one's expiry slides forward as it is used, see
+        ``accounts.security.track_session``), so its row describes nothing
+        and is left out.
+        """
+        return self.filter(last_seen_at__gt=_session_cutoff(now)).order_by(
+            "-last_seen_at", "-pk"
+        )
+
+    def expired(self, now=None):
+        return self.filter(last_seen_at__lte=_session_cutoff(now))
+
+
+def _session_cutoff(now=None):
+    return (now or timezone.now()) - timedelta(seconds=settings.SESSION_COOKIE_AGE)
+
+
+class UserSession(models.Model):
+    """One browser signed in to an account — a "device" on the Account page.
+
+    Created at sign-in, and its id kept in that browser's session. Every
+    signed-in request looks for the row; deleting it is how one device is
+    signed out from another, because the next request from that browser
+    finds nothing and is signed out. The Django session key itself is
+    never stored: it is a bearer credential, and the row's id is enough.
+
+    The IP and user agent are what the owner needs to recognise the
+    device, refreshed as it is used.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="user_sessions",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=300, blank=True)
+
+    objects = UserSessionQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["user", "-last_seen_at"], name="usersession_user_recent"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.label} — {self.user}"
+
+    @property
+    def label(self):
+        """A readable name for the device, such as "Firefox on Windows"."""
+        browser = _first_match(self.user_agent, _BROWSERS)
+        system = _first_match(self.user_agent, _SYSTEMS)
+        if browser and system:
+            return f"{browser} on {system}"
+        return browser or system or "Unknown browser"
+
+
+# User-agent markers, checked in order: Edge and Opera also say "Chrome",
+# Chrome also says "Safari", iPhones also say "Mac OS X", and Android also
+# says "Linux", so the more specific marker has to come first.
+_BROWSERS = [
+    ("Edg", "Edge"),
+    ("OPR/", "Opera"),
+    ("Firefox/", "Firefox"),
+    ("FxiOS/", "Firefox"),
+    ("Chrome/", "Chrome"),
+    ("CriOS/", "Chrome"),
+    ("Safari/", "Safari"),
+]
+_SYSTEMS = [
+    ("iPhone", "iPhone"),
+    ("iPad", "iPad"),
+    ("Android", "Android"),
+    ("Windows", "Windows"),
+    ("CrOS", "ChromeOS"),
+    ("Mac OS X", "macOS"),
+    ("Linux", "Linux"),
+]
+
+
+def _first_match(user_agent, markers):
+    return next((name for marker, name in markers if marker in user_agent), None)
 
 
 class AddressQuerySet(models.QuerySet):

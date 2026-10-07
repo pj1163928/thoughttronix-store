@@ -1,6 +1,12 @@
 from django import forms
-from django.contrib.auth.forms import AuthenticationForm, UserCreationForm
+from django.contrib.auth.forms import (
+    AuthenticationForm,
+    SetPasswordMixin,
+    UserCreationForm,
+)
+from django.template.defaultfilters import pluralize
 
+from . import security
 from .models import Address, User
 
 
@@ -65,6 +71,86 @@ class SignInForm(AuthenticationForm):
         identifier.widget.attrs["maxlength"] = identifier.max_length
         for field in self.fields.values():
             field.widget.attrs["class"] = "input w-full"
+
+
+class ReauthenticationForm(forms.Form):
+    """The "prove it's you" field every sensitive change starts with.
+
+    Subclasses add the change itself and set ``purpose``, a short label
+    stored on the audit event when the password is wrong. The check is
+    ``security.confirm_identity``: a wrong password counts toward the
+    sign-in cooldown, and while the account is paused nothing is checked.
+    The user is signed in and asking about their own account, so unlike
+    the sign-in page this form may say that it is paused.
+    """
+
+    purpose = ""
+
+    current_password = forms.CharField(
+        label="Current password",
+        strip=False,
+        widget=forms.PasswordInput(attrs={"autocomplete": "current-password"}),
+    )
+
+    def __init__(self, user, *args, request=None, **kwargs):
+        self.user = user
+        self.request = request
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "input w-full"
+
+    def clean_current_password(self):
+        password = self.cleaned_data["current_password"]
+        if security.confirm_identity(
+            self.user, password, purpose=self.purpose, request=self.request
+        ):
+            return password
+        standing = security.sign_in_standing(self.user)
+        if standing.paused_until:
+            minutes = standing.paused_minutes
+            raise forms.ValidationError(
+                f"Too many failed attempts. Try again in {minutes} "
+                f"minute{pluralize(minutes)}.",
+                code="paused",
+            )
+        raise forms.ValidationError(
+            "That isn't your current password.", code="wrong_password"
+        )
+
+
+class PasswordChangeForm(SetPasswordMixin, ReauthenticationForm):
+    """The current password, then the new one twice.
+
+    Django's own ``PasswordChangeForm`` checks the old password itself;
+    this one checks it through ``ReauthenticationForm`` so a wrong answer
+    counts toward the cooldown like any other.
+    """
+
+    purpose = "password_change"
+
+    new_password1, new_password2 = SetPasswordMixin.create_password_fields(
+        label1="New password", label2="New password again"
+    )
+
+    def clean(self):
+        self.validate_passwords("new_password1", "new_password2")
+        self.validate_password_for_user(self.user, "new_password2")
+        return super().clean()
+
+    def save(self, commit=True):
+        return self.set_password_and_save(self.user, "new_password1", commit=commit)
+
+
+class SignOutOthersForm(ReauthenticationForm):
+    """Only the current password: the button's whole job is to act."""
+
+    purpose = "sign_out_others"
+
+
+class SignOutDeviceForm(ReauthenticationForm):
+    """Only the current password; the device comes from the URL."""
+
+    purpose = "sign_out_device"
 
 
 class AddressForm(forms.ModelForm):

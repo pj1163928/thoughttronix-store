@@ -15,7 +15,7 @@
     </div>
   {% endif %}
 
-  <div class="mt-6 grid gap-4 sm:grid-cols-2">
+  <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
     <section class="card bg-base-100 shadow-md" aria-labelledby="profile-heading">
       <div class="card-body">
         <h2 id="profile-heading" class="card-title text-base">Profile</h2>
@@ -45,6 +45,9 @@
             Never changed
           {% endif %}
         </p>
+        <div class="card-actions mt-2 justify-end">
+          <a href="{% url 'accounts:password_change' %}" class="btn btn-ghost btn-sm">Change password</a>
+        </div>
       </div>
     </section>
 
@@ -63,7 +66,63 @@
         </div>
       </div>
     </section>
+
   </div>
+
+  <section id="devices" class="card mt-4 bg-base-100 shadow-md" aria-labelledby="devices-heading">
+    <div class="card-body">
+      <h2 id="devices-heading" class="card-title text-base">Devices</h2>
+      <p class="text-sm opacity-70">
+        Browsers signed in to your account. Each browser counts once, however
+        many windows or tabs it has open.
+      </p>
+
+      <ul class="divide-y divide-base-300">
+        {% for user_session in user_sessions %}
+          <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+            <div>
+              <p class="font-semibold">
+                {{ user_session.label }}
+                {% if user_session.pk == current_session_id %}
+                  <span class="badge badge-primary badge-sm ml-1">This device</span>
+                {% endif %}
+              </p>
+              <p class="text-sm opacity-70">
+                <span class="font-mono">{{ user_session.ip_address|default:"Unknown IP" }}</span>
+                · Signed in {{ user_session.created_at|timesince }} ago
+                (<time datetime="{{ user_session.created_at|date:'c' }}">{{ user_session.created_at|date:"j M Y, H:i T" }}</time>)
+                ·
+                {% if user_session.pk == current_session_id %}
+                  Active now
+                {% else %}
+                  Last active {{ user_session.last_seen_at|timesince }} ago
+                {% endif %}
+              </p>
+            </div>
+            {% if user_session.pk != current_session_id %}
+              <a href="{% url 'accounts:sign_out_device' user_session.pk %}" class="btn btn-ghost btn-sm text-error">
+                Sign out
+              </a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+
+      <form method="post" action="{% url 'accounts:sign_out_others' %}" class="mt-2 space-y-3 border-t border-base-300 pt-4">
+        {% csrf_token %}
+        <p class="text-sm">
+          Signed in somewhere you don't recognize? End every session except this one.
+          Your password stays the same.
+        </p>
+        <div class="max-w-sm">
+          {% for field in form %}
+            {% include "orders/partials/_field.html" %}
+          {% endfor %}
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm">Sign out of all other devices</button>
+      </form>
+    </div>
+  </section>
 
   <section class="card mt-4 bg-base-100 shadow-md" aria-labelledby="activity-heading">
     <div class="card-body">

@@ -7,7 +7,10 @@ call in and contain no security logic of their own. The PRD
 recovery codes, the sign-in cooldown and alert emails; they arrive phase
 by phase. What it holds today is the foundation the rest is built on,
 recording a ``SecurityEvent``, the sign-in cooldown built on top of it,
-and the alert email the cooldown sends.
+the alert email, "prove it's you": the current-password check that
+guards every sensitive change, with the password change and "sign out of
+all other devices" it guards, and the list of signed-in devices that
+lets one be signed out at a time.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -24,12 +27,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.contrib.auth import logout, update_session_auth_hash
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from .models import SecurityEvent
+from .models import SecurityEvent, UserSession
 
 if TYPE_CHECKING:
     from django.contrib.sessions.backends.base import SessionBase
@@ -198,13 +202,15 @@ def record_failure(
     *,
     request: HttpRequest | None = None,
     at: datetime | None = None,
+    details: dict[str, Any] | None = None,
 ) -> Pause | None:
     """Record a wrong password or code, and start a pause if it has earned one.
 
     ``kind`` is one of ``FAILURE_KINDS``. ``user`` is the account the
     attempt named, or ``None`` for an identifier that matched nobody;
     those are logged but count toward no one. Must not be called while
-    the account is paused (see ``is_cooling_down``).
+    the account is paused (see ``is_cooling_down``). ``details`` is
+    stored on the failure's event, as for ``record_event``.
 
     When this failure starts a pause, a "sign-in paused" event is
     recorded with the pause's length in ``details`` and the owner is
@@ -212,7 +218,7 @@ def record_failure(
     from filling the owner's inbox. Returns the new pause, or ``None``.
     """
     at = at or timezone.now()
-    record_event(kind, user, request=request, at=at)
+    record_event(kind, user, request=request, at=at, details=details)
     if user is None:
         return None
     pause = _pause_earned(*_account_history(user, at), at)
@@ -349,6 +355,193 @@ def _pause_earned(
     if standing.paused_until is None and standing.attempts_left == 0:
         return Pause(now, standing.next_pause_minutes)
     return None
+
+
+# --- Proving it's you -----------------------------------------------------------------
+#
+# Every sensitive change asks for the current password first. A wrong
+# answer counts toward the same cooldown as a wrong sign-in, so a session
+# left open on someone else's computer can't be used to guess the
+# password, and while the account is paused no answer is checked at all.
+
+
+def confirm_identity(
+    user: User,
+    password: str,
+    *,
+    purpose: str,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Whether ``password`` proves the signed-in ``user`` is who they say.
+
+    While the account is paused, refuses without checking and without
+    recording, exactly as sign-in does. Otherwise a wrong password is
+    recorded as a failed sign-in, with ``purpose`` (a short label such as
+    ``"password_change"``) in its details, and may start a pause.
+    """
+    if is_cooling_down(user, now=at):
+        return False
+    if user.check_password(password):
+        return True
+    record_failure(
+        Kind.SIGN_IN_FAILED,
+        user,
+        request=request,
+        at=at,
+        details={"reauthentication": purpose},
+    )
+    return False
+
+
+def password_changed(user: User, *, request: HttpRequest | None = None) -> None:
+    """Record that ``user`` changed their own password, and tell them.
+
+    Call after the new password is saved. Saving it has already signed
+    out every other session, because the password is part of the
+    session auth hash; the caller keeps its own with
+    ``update_session_auth_hash``. The other sessions' device rows are
+    removed here, so the Account page doesn't list devices that are
+    already signed out.
+    """
+    _forget_other_sessions(user, request)
+    record_event(Kind.PASSWORD_CHANGED, user, actor=user, request=request)
+    send_alert(
+        user,
+        "Your password was changed",
+        (
+            "The password for your ThoughtTronix account was changed, and "
+            "every other device signed in to it was signed out."
+        ),
+    )
+
+
+def sign_out_other_sessions(user: User, request: HttpRequest) -> None:
+    """Sign ``user`` out everywhere except ``request``'s session.
+
+    Rotates the session key on the account, which every session's auth
+    hash includes, then refreshes this session's hash so it survives.
+    The password is untouched. Removing the other device rows would sign
+    those sessions out on its own; the rotation also catches any session
+    that has no row.
+    """
+    _forget_other_sessions(user, request)
+    user.rotate_session_key()
+    update_session_auth_hash(request, user)
+    record_event(Kind.OTHER_SESSIONS_ENDED, user, actor=user, request=request)
+
+
+# --- Signed-in devices -------------------------------------------------------------
+#
+# Each browser signed in to an account has a ``UserSession`` row, and its
+# id is kept in that browser's session. Every signed-in request checks the
+# row is still there: deleting it is how one device signs out another.
+
+USER_SESSION_KEY = "user_session"
+# How often a device's "last active" time and IP are refreshed. Writing
+# them on every request would be a database write per page.
+LAST_SEEN_INTERVAL = timedelta(minutes=1)
+
+
+def start_session(request: HttpRequest, user: User) -> UserSession:
+    """Register the browser behind ``request`` as a device signed in to ``user``.
+
+    Called on every sign-in. A browser signing in again replaces its own
+    old row rather than appearing twice, and the account's expired rows
+    are cleared out while we're here.
+    """
+    now = timezone.now()
+    user.user_sessions.expired(now).delete()
+    previous = request.session.get(USER_SESSION_KEY)
+    if previous is not None:
+        user.user_sessions.filter(pk=previous).delete()
+    user_session = UserSession.objects.create(
+        user=user,
+        created_at=now,
+        last_seen_at=now,
+        ip_address=client_ip(request),
+        user_agent=_user_agent(request),
+    )
+    request.session[USER_SESSION_KEY] = user_session.pk
+    return user_session
+
+
+def track_session(request: HttpRequest, *, now: datetime | None = None) -> bool:
+    """Keep the signed-in device behind ``request`` honest; run on every request.
+
+    Signs the request out if its device was signed out from elsewhere,
+    and returns ``False`` when it did. Otherwise refreshes the device's
+    last-active time and IP (at most once a minute) and returns ``True``.
+
+    A refresh also marks the session modified, so its expiry slides
+    forward with use. That keeps the session's lifetime and the row's
+    "last active" in step, which is how ``UserSession.objects.active``
+    knows a row has expired without reading the session store.
+
+    A signed-in session with no row, from before devices were tracked,
+    is given one.
+    """
+    user = request.user
+    if not user.is_authenticated:
+        return True
+    pk = request.session.get(USER_SESSION_KEY)
+    if pk is None:
+        start_session(request, user)
+        return True
+    user_session = user.user_sessions.filter(pk=pk).first()
+    if user_session is None:
+        logout(request)
+        return False
+    now = now or timezone.now()
+    if now - user_session.last_seen_at >= LAST_SEEN_INTERVAL:
+        user_session.last_seen_at = now
+        user_session.ip_address = client_ip(request)
+        user_session.user_agent = _user_agent(request)
+        user_session.save(update_fields=["last_seen_at", "ip_address", "user_agent"])
+        request.session.modified = True
+    return True
+
+
+def end_session(request: HttpRequest) -> None:
+    """Remove the device row for ``request``'s session, as signing out does."""
+    pk = request.session.get(USER_SESSION_KEY)
+    if pk is not None:
+        UserSession.objects.filter(pk=pk).delete()
+
+
+def current_session_id(request: HttpRequest) -> int | None:
+    """The id of the ``UserSession`` row for this browser, if it has one."""
+    return request.session.get(USER_SESSION_KEY)
+
+
+def sign_out_session(
+    user: User, user_session: UserSession, *, request: HttpRequest | None = None
+) -> None:
+    """Sign one of ``user``'s other devices out, and record it.
+
+    The device is signed out on its next request, when ``track_session``
+    finds its row gone. The event names the device ("Firefox on
+    Windows") so the owner's history says which one.
+    """
+    label = user_session.label
+    user_session.delete()
+    record_event(
+        Kind.SESSION_ENDED,
+        user,
+        actor=user,
+        request=request,
+        details={"device": label},
+    )
+
+
+def _forget_other_sessions(user: User, request: HttpRequest | None) -> None:
+    current = current_session_id(request) if request is not None else None
+    user.user_sessions.exclude(pk=current).delete()
+
+
+def _user_agent(request: HttpRequest) -> str:
+    max_length = UserSession._meta.get_field("user_agent").max_length
+    return request.META.get("HTTP_USER_AGENT", "")[:max_length]
 
 
 # --- Alerts -------------------------------------------------------------------------

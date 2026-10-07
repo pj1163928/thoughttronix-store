@@ -30,6 +30,121 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 6: change password, sign out other devices, and a device list
+
+*The same session as the Phase 5 entry below, continued; its first three
+prompts are logged there.*
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 6,
+   try to utilize the existing template made from phase 5"
+2. "How can I test this in the browser"
+3. "Ok for the devices I cannot see another session even when I am on
+   multiple browser windows can you make it to where I can see the
+   devices that are currently signed in as well as for how long and
+   choose to indavidually sign them out."
+4. "add session chats to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 6 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The session key.** `User.session_key` (migration `0006`) is mixed
+    into the session auth hash by overriding `_get_session_auth_hash`, so
+    the `SECRET_KEY_FALLBACKS` variant is covered too.
+    `rotate_session_key()` signs out every other session without touching
+    the password.
+  - **Prove it's you.** `ReauthenticationForm` is the shared "Current
+    password" field. It checks through the new
+    `security.confirm_identity`: a wrong answer is recorded as a failed
+    sign-in with `{"reauthentication": <purpose>}` in `details` and
+    counts toward the cooldown. While the account is paused, nothing is
+    checked or recorded.
+  - **Change password.** `PasswordChangeForm` is built from Django's
+    `SetPasswordMixin` and `ReauthenticationForm` rather than from
+    Django's own `PasswordChangeForm`. That form checks the old password
+    itself, which would have bypassed the cooldown.
+    - The view subclasses Django's `PasswordChangeView`, so this session
+      stays signed in and the new password ends every other one.
+    - `security.password_changed` records the event and sends the alert.
+  - **Sign out of all other devices.** `security.sign_out_other_sessions`
+    rotates the key, keeps this session and records the event.
+
+  "Utilize the existing template" was read as building onto the phase 5
+  Account page rather than adding a separate page:
+  - The Password card gained a Change password button.
+  - A Devices card holds the sign-out form.
+  - `SignOutOthersView` subclasses `AccountView`, so a wrong password
+    re-renders the whole Account page with the error under the field.
+
+  The suite went from 590 to 615 tests, all 25 new ones in
+  `accounts/test_password_and_sessions.py`.
+
+  Prompt 2 changed no code. It produced a browser walkthrough: a normal
+  window plus a private one as two devices, alert emails in the
+  `runserver` terminal, five wrong answers to trip the pause, and `seed`
+  to clean up.
+
+  Prompt 3 added a device list:
+  - **The model.** A `UserSession` row per signed-in browser (migration
+    `0007`, which also adds a "Signed out a device" event type). It is
+    created on `user_logged_in`, deleted on `user_logged_out`, and its id
+    is kept in the browser's session.
+  - **The middleware.** `UserSessionMiddleware`, through
+    `security.track_session`, signs a browser out once its row is gone,
+    with a message saying why. It refreshes "last active" and the IP at
+    most once a minute, and each refresh slides the session's expiry
+    forward, so idle rows expire with their sessions.
+  - **The Devices card.** It now lists each browser: a name from the
+    user agent ("Firefox on Windows"), the IP, when it signed in, when it
+    was last active, and "This device" marked.
+  - **Signing out one device.** Any other device can be signed out on
+    its own through a confirm page that takes the current password.
+  - **Clearing rows.** "Sign out of all others" and a password change
+    now also delete the other rows.
+
+  The PRD has a dated amendment and phase 6 of the plan an amended
+  section with five new criteria. The suite went from 615 to 644 tests,
+  all 29 new ones in `accounts/test_devices.py`. Ruff is clean, and
+  migrations `0005` through `0007` were applied to the local database.
+  Nothing was committed.
+
+- **Deviations:** no questions were asked; the agent proceeded on
+  defaults and reported them:
+  - **Device sign-out needs the password.** Signing out a single device
+    requires the current password, consistent with "Sign out of all
+    other devices" and story 24. The user was told it could become one
+    click.
+  - **No new event type for re-auth failures.** Wrong current passwords
+    are logged as "Sign-in failed" with the form named in `details`,
+    because the PRD's list of event types is fixed. They therefore read
+    as "Sign-in failed" on the activity card.
+  - **No alert for signing out devices.** Neither signing out other
+    devices nor signing out one device sends an email, because story
+    37's list of alerts doesn't include them.
+  - **Session keys are never stored.** The device list keys on its own
+    row id, because a Django session key is a credential.
+
+- **Sideways:**
+  - **The device problem was partly a misunderstanding.** Windows of one
+    browser share cookies, so they were always one session. The build
+    added the list, and the reply explained that a second browser or a
+    private window is needed to see a second device.
+  - **A leftover line.** The first draft of the password-change tests had
+    a stray `... if False else None` line, removed before the first run.
+    Every new test passed on its first run.
+  - **Two behaviour changes worth knowing:**
+    - Every existing dev session was signed out once, because the
+      session hash changed.
+    - Sessions now last two weeks from last use rather than from sign-in.
+  - **A pending migration.** Phase 4's migration `0005` had never been
+    applied locally. It went in along with `0006`.
+  - **No browser check.** The agent didn't open the pages itself; prompt
+    2's walkthrough is how they're meant to be checked.
+  - **`seed` not run.** It still needs to run before `db.sqlite3` is
+    committed, as phase 18 requires.
+
 ## 2026-10-07 — Account security, Phase 5: the Account page and navigation
 
 ### Prompts

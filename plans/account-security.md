@@ -266,15 +266,35 @@ password, rotates the session key and records its event.
 
 ### Acceptance criteria
 
-- [ ] Changing the password requires the current password, keeps the
+- [x] Changing the password requires the current password, keeps the
       current session signed in and invalidates a second session.
-- [ ] "Sign out of all other devices" invalidates a second session
+- [x] "Sign out of all other devices" invalidates a second session
       without changing the password, and records its event.
-- [ ] A wrong current password on either form counts toward the sign-in
+- [x] A wrong current password on either form counts toward the sign-in
       cooldown.
-- [ ] A password change sends one alert email with the required wording.
+- [x] A password change sends one alert email with the required wording.
       An account with no email gets none and no error.
-- [ ] The hub's Password card shows the new "last changed" time.
+- [x] The hub's Password card shows the new "last changed" time.
+
+### Amended 2026-10-07: the device list
+
+Per the PRD's amendment of the same date: the hub's Devices card lists
+every signed-in browser (name from the user agent, IP, signed in, last
+active, "This device" marked), and any other one can be signed out on its
+own through a confirm page that takes the current password. A
+`UserSession` row per browser, checked by middleware on each request, is
+the mechanism; Django's session key is never stored.
+
+- [x] Each browser signed in to the account is listed once, with its
+      name, IP, sign-in time and last-active time, and this one marked.
+- [x] Signing out one device ends that session alone, records a "Signed
+      out a device" event naming it, and tells that browser why.
+- [x] The confirm page changes nothing on GET, takes the current
+      password, and counts a wrong one toward the cooldown.
+- [x] This device, and another account's devices, can't be signed out
+      from the list.
+- [x] Sign out of all others, a password change and signing out each
+      clear the rows they end, and idle rows expire with their session.
 
 ---
 

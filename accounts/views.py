@@ -1,19 +1,28 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import PasswordChangeView as DjangoPasswordChangeView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import NON_FIELD_ERRORS
+from django.shortcuts import get_object_or_404
 from django.urls import reverse_lazy
 from django.views.generic import (
     CreateView,
     DeleteView,
+    FormView,
     ListView,
-    TemplateView,
     UpdateView,
 )
 
 from . import security
-from .forms import AddressForm, SignInForm, SignupForm
+from .forms import (
+    AddressForm,
+    PasswordChangeForm,
+    SignInForm,
+    SignOutDeviceForm,
+    SignOutOthersForm,
+    SignupForm,
+)
 from .models import Address, SecurityEvent
 
 
@@ -78,25 +87,114 @@ class SignOutView(LogoutView):
 # --- The Account page -------------------------------------------------------
 
 
-class AccountView(LoginRequiredMixin, TemplateView):
+class AccountView(LoginRequiredMixin, FormView):
     """The account at a glance: one card per thing that can be checked.
 
-    Each card that can change something links to its own small page; this
-    one only reads. The activity card shows the user's own events and
-    nobody else's, newest first.
+    Each card that can change something links to its own small page. The
+    one form shown here, "Sign out of all other devices", posts to
+    ``SignOutOthersView``, which renders this same page when the password
+    is wrong. The activity card shows the user's own events and nobody
+    else's, newest first.
     """
 
     template_name = "accounts/account.html"
+    form_class = SignOutOthersForm
+    success_url = reverse_lazy("accounts:account")
     activity_limit = 10
+    http_method_names = ["get", "head", "options"]
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
 
     def get_context_data(self, **kwargs):
         user = self.request.user
         return super().get_context_data(
             password_last_changed=user.password_last_changed,
             address_count=user.addresses.count(),
+            user_sessions=user.user_sessions.active(),
+            current_session_id=security.current_session_id(self.request),
             events=user.security_events.all()[: self.activity_limit],
             **kwargs,
         )
+
+
+class SignOutOthersView(AccountView):
+    """End every session but this one, after the current password."""
+
+    http_method_names = ["post"]
+
+    def form_valid(self, form):
+        security.sign_out_other_sessions(self.request.user, self.request)
+        messages.success(self.request, "You've been signed out on every other device.")
+        return super().form_valid(form)
+
+
+class SignOutDeviceView(LoginRequiredMixin, FormView):
+    """Sign one other device out, after the current password.
+
+    Only the owner's own devices are found, and never this one — signing
+    out here is what the navbar's "Sign out" is for.
+    """
+
+    form_class = SignOutDeviceForm
+    template_name = "accounts/device_sign_out.html"
+    success_url = reverse_lazy("accounts:account")
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            self.user_session = get_object_or_404(
+                request.user.user_sessions.active().exclude(
+                    pk=security.current_session_id(request)
+                ),
+                pk=kwargs["pk"],
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(user_session=self.user_session, **kwargs)
+
+    def form_valid(self, form):
+        security.sign_out_session(
+            self.request.user, self.user_session, request=self.request
+        )
+        messages.success(self.request, f"Signed out {self.user_session.label}.")
+        return super().form_valid(form)
+
+
+class PasswordChangeView(DjangoPasswordChangeView):
+    """Change the password, staying signed in here and nowhere else.
+
+    Django's view saves the password and keeps this session; the new
+    password has already ended every other one. Recording and the alert
+    are ``accounts.security``'s.
+    """
+
+    form_class = PasswordChangeForm
+    template_name = "accounts/password_change.html"
+    success_url = reverse_lazy("accounts:account")
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), "request": self.request}
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        security.password_changed(form.user, request=self.request)
+        messages.success(
+            self.request,
+            "Password changed. Every other device has been signed out.",
+        )
+        return response
 
 
 # --- The address book -------------------------------------------------------

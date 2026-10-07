@@ -479,3 +479,39 @@ changed. The rest of the PRD stands.
   again, through the same alert helper and wording as every other alert.
   Ordinary failed sign-ins still never send mail, so a stranger can
   trigger at most one email per pause.
+
+---
+
+## Amendment — the device list (2026-10-07)
+
+Made after phase 6 was built, at the user's request, once they had tried
+"Sign out of all other devices" in a browser and found the Account page
+gave no way to see what was signed in. Story 36 is extended; the rest of
+the PRD stands.
+
+- **A device list (extends story 36).** The Account page's Devices card
+  lists every browser signed in to the account: a readable name taken
+  from the user agent ("Firefox on Windows"), the IP address, when it
+  signed in and when it was last active, with "This device" marked.
+  Each browser is one device, however many windows or tabs it has open.
+- **Signing out one device.** Every device but this one has a "Sign out"
+  link to a confirm page that takes the current password, like "Sign out
+  of all other devices", and counts a wrong answer toward the cooldown.
+  GET changes nothing. The device is signed out on its next request and
+  told why. A new event type, "Signed out a device" (`session_ended`),
+  records it with the device's name in `details`.
+- **How it works.** A `UserSession` row per signed-in browser, created at
+  sign-in through `user_logged_in`, removed at sign-out, with its id kept
+  in that browser's session. A middleware checks the row on every
+  signed-in request and signs the browser out if it's gone; that is the
+  whole mechanism for signing one device out. Django's session key is
+  never stored, because it is a bearer credential. "Last active" and the
+  IP are refreshed at most once a minute, and each refresh slides the
+  session's expiry forward, so a row idle for `SESSION_COOKIE_AGE` has
+  expired with its session and is no longer listed.
+- **The session key field stays.** "Sign out of all other devices" and a
+  password change now also delete the other rows, so the list never shows
+  a device that is already signed out, but the rotation still catches any
+  session without a row.
+- **Not stored:** nothing beyond what the list shows. The user agent is
+  kept only to name the device.
