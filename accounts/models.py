@@ -77,6 +77,95 @@ class User(AbstractUser):
     job_title = models.CharField(max_length=150, null=True, blank=True)  # noqa: DJ001
 
 
+class SecurityEvent(models.Model):
+    """One line of the security audit log: what happened to an account.
+
+    Written only through ``accounts.security.record_event`` and never
+    edited afterwards — the admin offers no add, change or delete, to
+    superusers included. ``user`` is the account the event happened to;
+    ``actor`` is who did it: the owner themselves, a superuser applying an
+    override, or nobody (a failed sign-in, a server-side command).
+
+    Both links are ``SET_NULL`` where the rest of the codebase cascades,
+    because an audit log that disappears with the account it describes
+    isn't an audit log. ``username`` is a snapshot taken when the event
+    was recorded, so a deleted or renamed account still reads correctly.
+
+    Passwords, codes, tokens and secrets are never stored, in ``details``
+    or anywhere else on the row.
+    """
+
+    class Kind(models.TextChoices):
+        SIGN_UP = "sign_up", "Signed up"
+        SIGN_IN_SUCCEEDED = "sign_in_succeeded", "Signed in"
+        SIGN_IN_FAILED = "sign_in_failed", "Sign-in failed"
+        TWO_FACTOR_CODE_FAILED = "2fa_code_failed", "Two-factor code failed"
+        PASSWORD_CHANGED = "password_changed", "Password changed"
+        PASSWORD_RESET_REQUESTED = (
+            "password_reset_requested",
+            "Password reset requested",
+        )
+        PASSWORD_RESET_COMPLETED = (
+            "password_reset_completed",
+            "Password reset completed",
+        )
+        EMAIL_CHANGE_REQUESTED = "email_change_requested", "Email change requested"
+        EMAIL_CHANGE_CONFIRMED = "email_change_confirmed", "Email changed"
+        EMAIL_VERIFIED = "email_verified", "Email verified"
+        USERNAME_CHANGED = "username_changed", "Username changed"
+        TWO_FACTOR_ENABLED = "2fa_enabled", "Two-factor turned on"
+        TWO_FACTOR_DISABLED = "2fa_disabled", "Two-factor turned off"
+        TWO_FACTOR_RESET = "2fa_reset", "Two-factor reset"
+        RECOVERY_CODES_REGENERATED = (
+            "recovery_codes_regenerated",
+            "Recovery codes regenerated",
+        )
+        RECOVERY_CODE_USED = "recovery_code_used", "Recovery code used"
+        ACCOUNT_LOCKED = "account_locked", "Account locked"
+        ACCOUNT_UNLOCKED = "account_unlocked", "Account unlocked"
+        COOLDOWN_CLEARED = "cooldown_cleared", "Sign-in cooldown cleared"
+        OTHER_SESSIONS_ENDED = "other_sessions_ended", "Signed out of other devices"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="security_events",
+    )
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="security_actions",
+    )
+    username = models.CharField(
+        max_length=150,
+        blank=True,
+        help_text="The account's username when the event was recorded.",
+    )
+    kind = models.CharField(max_length=32, choices=Kind.choices)
+    # A default rather than auto_now_add, so tests can pin the clock and
+    # the cooldown's 15-minute window can be exercised without sleeping.
+    created_at = models.DateTimeField(default=timezone.now)
+    # REMOTE_ADDR only: forwarded headers are spoofable without a known proxy.
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    details = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-pk"]
+        indexes = [
+            models.Index(
+                fields=["user", "-created_at"], name="securityevent_user_recent"
+            ),
+        ]
+
+    def __str__(self):
+        who = self.username or "unknown account"
+        return f"{self.get_kind_display()} — {who}"
+
+
 class AddressQuerySet(models.QuerySet):
     def matching(self, values):
         """The addresses equal to ``values``, compared case-insensitively.

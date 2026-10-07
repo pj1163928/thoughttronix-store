@@ -21,10 +21,12 @@ from django.contrib.auth import get_user_model
 from django.core.files import File
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
 
-from accounts.models import Address
+from accounts import security
+from accounts.models import Address, SecurityEvent
 from orders.models import Cart, DiscountCode, Order, OrderItem
 from products import images
 from products.models import Category, Product, ProductImage, Tag
@@ -558,6 +560,11 @@ BACKGROUND_CUSTOMERS = [
     ("rmalik", "Rafi", "Malik"),
 ]
 
+# Every account the seed owns, and so wipes and rebuilds on each run.
+MANAGED_USERNAMES = [username for username, *_ in DEMO_USERS] + [
+    username for username, *_ in BACKGROUND_CUSTOMERS
+]
+
 # The customer demo login's live cart: (product slug, quantity).
 CUSTOMER_CART = [
     ("seraphine", 2),
@@ -714,10 +721,15 @@ class Command(BaseCommand):
         Tag.objects.all().delete()
         Category.objects.all().delete()
 
-        managed_usernames = [username for username, *_ in DEMO_USERS] + [
-            username for username, *_ in BACKGROUND_CUSTOMERS
-        ]
-        get_user_model().objects.filter(username__in=managed_usernames).delete()
+        # The audit log outlives deleted accounts (SET_NULL), so the demo
+        # accounts' history is cleared explicitly or every reseed would
+        # leave another orphaned set behind. Only the seed's own accounts
+        # are touched: anyone who signed up during a demo keeps theirs.
+        SecurityEvent.objects.filter(
+            Q(user__username__in=MANAGED_USERNAMES)
+            | Q(user=None, username__in=MANAGED_USERNAMES)
+        ).delete()
+        get_user_model().objects.filter(username__in=MANAGED_USERNAMES).delete()
 
     def _create_tags(self):
         return {
@@ -782,6 +794,11 @@ class Command(BaseCommand):
             )
             user.set_unusable_password()
             user.save()
+
+        # Every account's history starts the way a real one would, so the
+        # audit log and the Account page's activity card aren't empty.
+        for user in User.objects.filter(username__in=MANAGED_USERNAMES).order_by("pk"):
+            security.record_event(SecurityEvent.Kind.SIGN_UP, user, actor=user)
 
     def _create_discount_codes(self):
         """One of each shape the feature can take — see ``DISCOUNT_CODES``."""

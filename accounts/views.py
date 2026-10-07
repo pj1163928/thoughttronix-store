@@ -5,8 +5,9 @@ from django.contrib.messages.views import SuccessMessageMixin
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from . import security
 from .forms import AddressForm, SignInForm, SignupForm
-from .models import Address
+from .models import Address, SecurityEvent
 
 
 class SignupView(SuccessMessageMixin, CreateView):
@@ -20,6 +21,16 @@ class SignupView(SuccessMessageMixin, CreateView):
     template_name = "accounts/signup.html"
     success_url = reverse_lazy("accounts:login")
     success_message = "Account created — you can now sign in."
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        security.record_event(
+            SecurityEvent.Kind.SIGN_UP,
+            self.object,
+            actor=self.object,
+            request=self.request,
+        )
+        return response
 
 
 class SignInView(LoginView):

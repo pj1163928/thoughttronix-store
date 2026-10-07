@@ -30,6 +30,228 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 1: the audit log tracer
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 1"
+2. "How can I manually verify this phase in the browser?"
+3. "I have this error when starting the server You have 1 unapplied
+   migration(s). Your project may not work properly until you apply the
+   migrations for app(s): accounts. Run 'python manage.py migrate' to
+   apply them."
+4. "add the session to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Phase 1 of `plans/account-security.md` was built and its
+  seven acceptance criteria ticked:
+  - **The model.** `accounts.SecurityEvent` (migration
+    `0003_securityevent`) records the affected `user` and the `actor`,
+    both `SET_NULL`. Each row also keeps a username snapshot, the event
+    type, a `created_at` that tests can pin, the IP and a JSON `details`
+    field.
+  - **The deep module.** `accounts/security.py` is the fourth deep
+    module. It holds `record_event`, and `client_ip`, which reads
+    `REMOTE_ADDR` only and stores anything that isn't a valid address as
+    unknown.
+  - **What gets recorded.** `SignupView.form_valid` records sign-ups.
+    Sign-ins are recorded by receivers on Django's `user_logged_in` and
+    `user_login_failed` signals in `accounts/signals.py`, so `/admin/`
+    sign-ins are logged too. A failed attempt is attached to the account
+    it named. An unknown identifier is stored with no user and no
+    identifier, only the IP.
+  - **The admin.** `SecurityEventAdmin` is read-only for everyone and
+    visible to superusers only, even when a staff member holds
+    `view_securityevent`. It filters by kind, date, actor and user and
+    searches by username snapshot.
+  - **The seed.** It clears the demo accounts' events on each wipe and
+    gives all 12 seeded users a sign-up event.
+
+  The suite went from 476 to 498 tests (22 new in
+  `accounts/test_security_events.py`), all passing, with ruff clean.
+  Nothing was committed.
+
+  Prompt 2 changed no code. It produced a browser walkthrough: the
+  seed's 12 sign-up events, a table of storefront actions and the row
+  each should add, deleting a throwaway account to see its events
+  survive, the 403s on add, change and delete, and the staff check
+  including an explicitly granted view permission. Prompt 3 applied the
+  pending migration.
+
+- **Deviations:** no recommendations were offered, so none were
+  overridden. Four judgment calls were made without asking. The first
+  three were flagged in the build summary; the fourth wasn't:
+  - **Signals, not `SignInView`,** for sign-in events, so no sign-in
+    path can skip the log.
+  - **All 20 event types defined now** from the PRD's list, rather than
+    one migration per phase.
+  - **`actor` stored exactly as passed:** the owner for their own
+    actions, the admin for overrides, `None` for failed sign-ins and
+    server commands. Phase 5's "by ThoughtTronix support" depends on it.
+  - **The seed deletes audit rows.** That sits awkwardly with a
+    "tamper-proof" log. It is confined to the seed's own accounts and
+    explained in a comment: without it, every reseed would leave
+    another set of rows from the deleted accounts behind.
+
+  For now, failed sign-ins are matched by exact username. Phase 3
+  replaces this with the case-insensitive username-or-email lookup. The
+  user's follow-ups were prompts 2 and 3.
+
+- **Sideways:**
+  - **The dev database wasn't migrated during the build.** The summary
+    told the user to run `migrate` and the walkthrough listed it under
+    setup, but the server was started without it and printed the
+    unapplied-migration warning. It was applied in prompt 3. `seed` was
+    deliberately not run for the user, because it wipes the demo world;
+    it is still needed before the walkthrough's step 1 and before
+    `db.sqlite3` is committed.
+  - **Test runs.** Every test passed on its first run. `ruff format`
+    reformatted three new files afterwards (formatting only). Tests were
+    run with `uv run python -m pytest`, because of the Windows launcher
+    block recorded on 2026-10-03.
+  - **A miscount.** The build summary told the user "20 new" tests.
+    Recounting with `--collect-only` while writing this entry found 22,
+    because the parametrised IP test counts as three.
+  - **No browser.** Nothing was checked in a browser by the agent. The
+    admin's read-only pages and 403s were verified through the test
+    client only.
+
+## 2026-10-07 — Account management and security: the PRD broken into an 18-phase plan
+
+### Prompts
+
+1. The `/prd-to-plan` skill, given: "@prd/account-security.md create a
+   plan from the PRD and place it in the plans folder, also append this
+   session to the PROMPTS.md section."
+2. "Keep 18 phases (Recommended)" (asked whether the granularity felt
+   right. The alternatives were merging to about 12 or splitting
+   further.)
+
+### Summary
+
+- **Outcome:** `plans/account-security.md`, with no code. The header holds
+  the durable decisions: everything in `accounts`, `accounts/security.py`
+  as the fourth deep module, the PRD's full URL table, the new models and
+  their FKs (`SecurityEvent` with `SET_NULL` and a username snapshot), the
+  username-or-email backend, and the superuser-only admin. The 18 phases
+  are thin vertical slices. The audit log goes first because the cooldown,
+  the activity card and "password last changed" are all derived from it.
+  Next come email and identity, sign-in, the cooldown and the Account hub.
+  After that the self-service changes, with the session key, re-auth and
+  alert helper built once in the change-password phase. Two-factor follows
+  in three slices: enrol, two-step sign-in, manage. Then the superuser
+  gate, admin in three slices, and finally break-glass, settings and docs.
+  Every one of the PRD's 54 user stories is assigned to a phase.
+
+- **Deviations:** none. The proposed breakdown was accepted as offered.
+  Two orderings were my calls and weren't put to the user. Two-factor
+  enrolment comes before two-step sign-in, so for one phase a user can
+  enrol without it being enforced. Admin overrides come after the
+  superuser gate, so the admin is already protected by two-factor by the
+  time the overrides exist.
+
+- **Sideways:** the PRD cites `prd/account-security-decisions.md` (the
+  Q1–Q22 interview record) and yesterday's log entry says it was written,
+  but the file isn't in the working tree or anywhere in git history. The
+  plan was built from the PRD alone, which restates every decision it
+  needs. The decisions file should be recovered or the PRD's reference
+  corrected before the build.
+
+## 2026-10-06 — Account management and security: a 22-question design interview, recorded and not built
+
+### Prompts
+
+1. The `/grill-me` skill, given: "ThoughtTronix is in need of an account
+   management and security system. The current website allows users to
+   log in with their email and password as well as sign up for an
+   account. Currently, however, there is no way for users to edit
+   sections of their account, which would include their email and
+   password, as well as any way for a user to change their password or
+   username. or email. Please create a design outline using the grill me
+   skill. Do not implement any of the changes; only record the outcome of
+   our conversation, as that will come later. Please ensure the
+   following: Features are operable and refined upon as necessary: Allow
+   users to provide an email address when creating an account. Ability to
+   change their password. Ability to reset a forgotten password. 2FA
+   integration using an external application such as Google
+   Authenticator, allowing users to authenticate offline. Ability to
+   change their username and email. Admins must also be able to view and
+   monitor these changes and override them if necessary. Please add any
+   additional security features you feel might be beneficial that would
+   not add too much to the initial'design."
+2. "3" (Q1, sign-in identifier: username or email)
+3. "1" (Q2, email required at sign-up)
+4. "2. But for testing purposes can you add the ability for admins to
+   override this and verify their email, I do not intend on implementing
+   email API services into this application to send to a real email."
+   (Q3, soft verification)
+5. "1" (Q4, superusers only hold override powers)
+6. "1. Sounds good but can you make an accesible link for admins to click
+   on in their profile manager and in the back office it should only be
+   available to admins(superusers)" (Q5, admin tools in `/admin/`)
+7. "1" (Q6, Account hub with one page per change)
+8. "1. Also if possible can we give the users who have 2FA active the
+   ability to use that instead to verify themselves." (Q7, current
+   password on sensitive forms)
+9. "1" (Q8, `pyotp` + `segno` with own models)
+10. "1" (Q9, hashed recovery codes plus admin reset)
+11. "1" (Q10, two-step sign-in, code every time)
+12. "1" (Q11, confirm the new email by link before switching)
+13. "1" (Q12, renames any time, logged)
+14. "1" (Q13, reset links to any email on the account)
+15. "Lets go with option 1, and yes a securtity card would be nice to add
+    as well with the criteria you mentioned" (Q14, `SecurityEvent`
+    model and the activity card)
+16. "1" (Q15, 5-in-15-minutes cooldown from the audit log)
+17. "2" (Q16, 2FA mandatory for superusers)
+18. "2" (Q17, seeded admin forced through setup, not pre-enrolled)
+19. "1" (Q18, set-password form plus send-reset-link action)
+20. "1" (Q19, alert emails for high-risk events)
+21. "1" (Q20, TOTP secret stored plain, run `seed` before committing)
+22. "1" (Q21, cookie hardening and "sign out other devices" in)
+23. "1 and make sure that the chat logs are recorded in PROMPTS.md"
+    (Q22, record as `prd/account-security-decisions.md`)
+
+### Summary
+
+- **Outcome:** 22 questions, no code. The decisions are recorded in
+  `prd/account-security-decisions.md`, grouped by feature, with a
+  deferred list and five open points for the PRD stage. The headline:
+  username-or-email sign-in; required, unique, softly verified email;
+  an `/accounts/` hub with one page per change, each guarded by the
+  current password or a 2FA code; TOTP via `pyotp` + `segno` in a new
+  fourth deep module, `accounts/security.py`, with hashed recovery codes
+  and 2FA mandatory for superusers; a read-only `SecurityEvent` audit
+  log in `/admin/` that also drives a 5-in-15-minutes sign-in cooldown,
+  the user's activity card and a short list of alert emails; and
+  superuser-only overrides in `/admin/` that never touch another
+  superuser. Nothing in the repo besides this log and the new decision
+  file was touched.
+
+- **Deviations:** one recommendation overridden. Q17: the user chose to
+  have the seeded `admin` go through forced 2FA setup on first sign-in
+  after every `seed`, instead of a pre-enrolled, documented demo secret.
+  Three answers added requirements: Q3 added an admin "Mark email
+  verified" override, because real email delivery won't be built; Q5
+  added a superuser-only "User security" link on the Account page and in
+  the back-office nav; Q7 let 2FA users re-authenticate with a code
+  instead of their password. Two recommended points were accepted
+  without comment and are flagged for confirmation at the PRD stage:
+  the Q4 guardrail (no overrides on yourself or another superuser) and
+  the Q7 exception (turning 2FA off needs both password and code).
+
+- **Sideways:** the brief said users "log in with their email and
+  password", but the code and the core PRD say username-only, with no
+  email at sign-up. Reading `accounts/forms.py` before the first question
+  caught it, and Q1 became a real choice instead of an assumption.
+  Grepping for `username` before Q12 found that Django's default
+  username validator allows `@`, which would have made username-or-email
+  sign-in ambiguous; banning `@` and enforcing case-insensitive
+  uniqueness were added as fixed rules. Q20 found that committing
+  `db.sqlite3` for grading would permanently put any real TOTP secret
+  into git history, which led to the "run `seed` before committing" rule.
+
 ## 2026-10-03 — Image sizing and product-page polish: the build, a blurred fill with full-size view, and two alignment passes
 
 ### Prompts
