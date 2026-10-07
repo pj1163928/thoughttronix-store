@@ -80,6 +80,19 @@ class UserManager(DjangoUserManager):
             return self.none()
         return self.filter(email__iexact=email)
 
+    def get_by_identifier(self, identifier):
+        """The one account whose username or email is ``identifier``.
+
+        Both comparisons ignore case. The match is unambiguous: usernames
+        can't contain ``@``, so no username is anyone's email, and each is
+        unique case-insensitively. Raises ``DoesNotExist`` when nobody
+        matches, as ``get`` does.
+        """
+        try:
+            return self.get(username__iexact=identifier)
+        except self.model.DoesNotExist:
+            return self.with_email(identifier).get()
+
 
 class User(AbstractUser):
     """The store's user model.

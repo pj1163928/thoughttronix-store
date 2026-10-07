@@ -30,6 +30,94 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 3: username-or-email sign-in
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 3"
+2. "How can I test this in the browser"
+3. "Ok I accidentally locked the admin account out but I did confirm it
+   worked can you unlock the account and append the session to
+   PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Phase 3 of `plans/account-security.md` was built and its
+  four acceptance criteria ticked:
+  - **The backend.** A new `accounts/backends.py` holds
+    `UsernameOrEmailBackend`, a `ModelBackend` subclass that changes only
+    how the account is found. Permissions and the refusal of inactive
+    (locked) accounts are inherited unchanged. An unknown account still
+    runs the password hasher, as `ModelBackend` does, so it takes as long
+    to refuse as a wrong password. The async path goes through the same
+    lookup. `AUTHENTICATION_BACKENDS` in `config/settings.py` lists only
+    the new backend.
+  - **The lookup.** `UserManager.get_by_identifier()` tries the username
+    first, then the email, both ignoring case. It reuses `with_email()`,
+    so a blank identifier never matches the older accounts that have no
+    email.
+  - **The form.** `SignInForm` labels the field "Username or email" and
+    raises its length limit from 150 (the username limit) to 254 (the
+    email limit).
+  - **The failed-sign-in log.** `accounts/signals.py` was still looking
+    the account up by exact username. A wrong password typed against an
+    email would have been logged as an unknown account, and phase 4's
+    cooldown, which counts failures per account, would have missed it.
+    It now uses `get_by_identifier()`. This wasn't in the plan and was
+    found while reading the code.
+
+  The suite went from 511 to 533 tests (22 new in
+  `accounts/test_sign_in.py`). Eleven of the new tests failed before the
+  change: identifiers by email and by case, the label, the length, the
+  settings, the admin sign-in by email, and the failure recorded against
+  an email. The other eleven passed both before and after. They cover
+  behaviour that must not change: permissions, inactive refusal, wrong
+  passwords, and the message a locked account gets matching a wrong
+  password's. Ruff is clean. Nothing was committed.
+
+  Prompt 2 changed no code. It produced a browser walkthrough using the
+  seeded accounts: a table of identifiers to try, locking `employee` in
+  the admin to compare messages, and checking the "Sign-in failed"
+  events in the Security events admin.
+
+  Prompt 3: the user locked the `admin` account while following the
+  walkthrough (it had said to lock `employee`) and confirmed the generic
+  message worked. The agent checked the demo accounts, found only
+  `admin` inactive, set `is_active = True` with a single-field update,
+  and confirmed `ADMIN@example.com` / `admin123` authenticates. No
+  "account unlocked" event was recorded, because that event's recording
+  path arrives in phase 16.
+
+- **Deviations:** no recommendations were offered, so none were
+  overridden. The only follow-up question was the browser walkthrough.
+  Three judgment calls were made without asking. Each was explained in
+  the build summary or is visible in the code:
+  - **Username first, then email** as two queries, rather than one
+    `Q(username) | Q(email)` query. Each step can match at most one
+    account, so there's never an ambiguity to resolve.
+  - **Widening the field to 254 characters.** The phase didn't ask for
+    it, but an email longer than 150 characters couldn't otherwise be
+    typed into the box.
+  - **Leaving Django's "Please enter a correct username and password"
+    message** as it is. Phase 4 replaces it with the PRD's single
+    message, so rewording it now would have meant changing it twice.
+
+- **Sideways:**
+  - **Formatting.** `ruff format --check` flagged the new test file after
+    the full suite passed. It was formatted and its 22 tests re-run.
+  - **Ticking the plan's checkboxes** was done with `sed -i` over a line
+    range rather than with an edit tool. It changed the four intended
+    lines and nothing else.
+  - **No browser.** The agent didn't check anything in a browser. The
+    user ran the walkthrough and confirmed the locked-account message.
+  - **The admin lockout.** The user locked themselves out of `admin` by
+    following the walkthrough on the wrong account. There was no other
+    superuser to undo it from the admin, so it was fixed from a Django
+    shell. A step in the walkthrough telling the user to sign out of the
+    admin before testing would have made the mix-up less likely.
+  - **`seed` not run.** It still needs to run before `db.sqlite3` is
+    committed, as phase 18 requires.
+
 ## 2026-10-07 — Account security, Phase 2: email at sign-up and identity rules
 
 ### Prompts

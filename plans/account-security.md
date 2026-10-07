@@ -157,12 +157,12 @@ sign-in field is relabelled "Username or email".
 
 ### Acceptance criteria
 
-- [ ] A user can sign in with their username or their email, in any
+- [x] A user can sign in with their username or their email, in any
       capitalisation.
-- [ ] An inactive (locked) user is refused with the same message as a
+- [x] An inactive (locked) user is refused with the same message as a
       wrong password.
-- [ ] Staff and superuser permission checks behave exactly as before.
-- [ ] The sign-in page labels the field "Username or email".
+- [x] Staff and superuser permission checks behave exactly as before.
+- [x] The sign-in page labels the field "Username or email".
 
 ---
 

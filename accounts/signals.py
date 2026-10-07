@@ -25,13 +25,15 @@ def record_sign_in(sender, request, user, **kwargs):
 @receiver(user_login_failed, dispatch_uid="accounts.record_failed_sign_in")
 def record_failed_sign_in(sender, credentials, request=None, **kwargs):
     # The attempt is pinned to the account it named, if any, so the
-    # cooldown can count it. An identifier that matches nobody is not
+    # cooldown can count it. The lookup is the backend's own, so a wrong
+    # password typed against an email lands on the same account as one
+    # typed against the username. An identifier that matches nobody is not
     # stored at all: people type their password into the username box.
     # The actor is unknown either way — failing to sign in proves nothing
     # about who was typing.
     User = get_user_model()
     try:
-        user = User.objects.get_by_natural_key(credentials.get("username"))
+        user = User.objects.get_by_identifier(credentials.get("username"))
     except User.DoesNotExist:
         user = None
     security.record_event(SecurityEvent.Kind.SIGN_IN_FAILED, user, request=request)
