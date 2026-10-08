@@ -1,4 +1,6 @@
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.views import PasswordChangeView as DjangoPasswordChangeView
@@ -22,7 +24,9 @@ from .forms import (
     ChangeEmailForm,
     ChangeUsernameForm,
     PasswordChangeForm,
+    PasswordResetForm,
     ProfileForm,
+    ResetPasswordForm,
     SignInForm,
     SignOutDeviceForm,
     SignOutOthersForm,
@@ -365,6 +369,61 @@ class PasswordChangeView(DjangoPasswordChangeView):
             "Password changed. Every other device has been signed out.",
         )
         return response
+
+
+# --- Resetting a forgotten password -----------------------------------------
+#
+# Django's own reset views, restyled. Each one names its namespaced next
+# page and email template: Django's defaults point at un-namespaced URL
+# names that this project doesn't have. The token generator is Django's
+# too, so a link works once, dies when the password changes, and lasts
+# ``PASSWORD_RESET_TIMEOUT``. None of these pages needs a sign-in.
+
+
+class PasswordResetView(auth_views.PasswordResetView):
+    """Ask for a reset link by email.
+
+    Every address gets the same redirect to the same "check your inbox"
+    page, whether or not an account uses it, so the form can't be used to
+    find out who shops here.
+    """
+
+    form_class = PasswordResetForm
+    template_name = "accounts/password_reset.html"
+    subject_template_name = "accounts/email/password_reset_subject.txt"
+    email_template_name = "accounts/email/password_reset.txt"
+    success_url = reverse_lazy("accounts:password_reset_done")
+
+    @property
+    def extra_email_context(self):
+        return {"hours": settings.PASSWORD_RESET_TIMEOUT // 3600}
+
+
+class PasswordResetDoneView(auth_views.PasswordResetDoneView):
+    template_name = "accounts/password_reset_done.html"
+
+
+class PasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    """Choose a new password from a reset link, then sign in afresh.
+
+    Django's view moves the token out of the URL into the session before
+    showing the form, so GET changes nothing. Saving the password ends
+    every session; the user is deliberately not signed in afterwards.
+    Recording and the alert are ``accounts.security``'s.
+    """
+
+    form_class = ResetPasswordForm
+    template_name = "accounts/password_reset_confirm.html"
+    success_url = reverse_lazy("accounts:password_reset_complete")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        security.password_reset_completed(form.user, request=self.request)
+        return response
+
+
+class PasswordResetCompleteView(auth_views.PasswordResetCompleteView):
+    template_name = "accounts/password_reset_complete.html"
 
 
 # --- The address book -------------------------------------------------------

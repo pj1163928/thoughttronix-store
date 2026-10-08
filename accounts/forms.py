@@ -1,10 +1,12 @@
 from django import forms
 from django.contrib.auth.forms import (
     AuthenticationForm,
+    SetPasswordForm,
     SetPasswordMixin,
     UserCreationForm,
     UsernameField,
 )
+from django.contrib.auth.forms import PasswordResetForm as DjangoPasswordResetForm
 from django.template.defaultfilters import pluralize
 
 from products import images
@@ -150,6 +152,46 @@ class PasswordChangeForm(SetPasswordMixin, ReauthenticationForm):
 
     def save(self, commit=True):
         return self.set_password_and_save(self.user, "new_password1", commit=commit)
+
+
+class PasswordResetForm(DjangoPasswordResetForm):
+    """The email address a forgotten password's reset link goes to.
+
+    Django's own form finds the account, case-insensitively, and mails it
+    a single-use link; an inactive (locked) account or one with no usable
+    password is left alone. The address needn't be verified. Whatever was
+    typed, the view answers the same way, so nothing here may say whether
+    an account matched. ``save`` adds the audit event, for matched
+    accounts only.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["email"].label = "Email address"
+        self.fields["email"].widget.attrs["class"] = "input w-full"
+
+    def save(self, *, request=None, **kwargs):
+        super().save(request=request, **kwargs)
+        for user in self.get_users(self.cleaned_data["email"]):
+            security.password_reset_requested(user, request=request)
+
+
+class ResetPasswordForm(SetPasswordForm):
+    """The new password twice, from a reset link; no current password.
+
+    The link is the proof. Django's ``SetPasswordForm`` validates and
+    saves; this only relabels and styles it to match the change-password
+    page.
+    """
+
+    new_password1, new_password2 = SetPasswordMixin.create_password_fields(
+        label1="New password", label2="New password again"
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "input w-full"
 
 
 class ChangeUsernameForm(ReauthenticationForm):

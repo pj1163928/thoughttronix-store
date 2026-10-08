@@ -30,6 +30,81 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 10: password reset
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 10"
+2. "how can I test this in the browser"
+3. "append the messages to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 10 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The views.** Django's four reset views are subclassed in
+    `accounts/views.py` and mounted at the PRD's paths. Each one names
+    its next page and email template inside the `accounts` namespace,
+    because Django's defaults point at un-namespaced URL names.
+    `PASSWORD_RESET_TIMEOUT = 3600` is in `config/settings.py`. The token
+    generator is Django's own, so a link works once and dies when the
+    password changes.
+  - **The forms.** `PasswordResetForm` leaves the lookup to Django: any
+    capitalisation, verified or not, locked accounts skipped. Its `save`
+    then records "reset requested", only for an account that matched.
+    `ResetPasswordForm` relabels and styles Django's `SetPasswordForm`.
+  - **The security module.** `accounts/security.py` gained
+    `password_reset_requested` and `password_reset_completed`. The second
+    removes every device row, records the event with the owner as actor,
+    and sends the "Your password was reset" alert.
+  - **The pages.** Four new templates, plus the email's subject and body.
+    "Check your email" reads the same whether or not an account matched.
+    The sign-in page gained "Forgot your password?", and the
+    change-password page gained "Reset it by email".
+  - **Tests.** `accounts/test_password_reset.py` has 22 tests. The
+    known-versus-unknown comparison masks CSRF tokens, because
+    `base.html` renders one on every page. Expiry is tested by pinning
+    `default_token_generator._now`, the hook Django provides for that,
+    rather than sleeping.
+
+  The suite went from 761 to 783 tests. Ruff is clean, and nothing was
+  committed or opened in a browser.
+
+  Prompt 2 changed no code. It produced a browser walkthrough using the
+  seeded `customer`, covering:
+  - known, unknown and locked addresses getting the same page;
+  - using the link with a second window signed in, which ends up signed
+    out;
+  - reusing a link;
+  - a password change killing a link;
+  - an expired link, minted in `manage.py shell` with a backdated
+    `_now`;
+  - the Account page's activity card and the admin's event list.
+
+- **Deviations:** No questions were asked. These defaults were taken and
+  reported:
+  - "Reset requested" has no actor, since anyone can type an address,
+    and sends no alert, since the reset email itself tells the owner.
+  - A reset doesn't clear a sign-in pause. The PRD lets only a successful
+    sign-in or "cooldown cleared" do that, so a paused user who resets
+    still waits up to an hour.
+  - The change-password page's "Reset it by email" link wasn't asked for.
+  - The "Check your email" and link-error pages say "an hour" as fixed
+    text. Only the email works it out from the setting.
+
+  The agent offered a PROMPTS.md entry and a commit rather than doing
+  either unprompted.
+
+- **Sideways:**
+  - **One test failed on the first run.** It signed in with a stale
+    `casey` instance after the reset, whose old password hash no longer
+    matched the session hash. Refreshing the instance first fixed it.
+    The code was correct.
+  - **`ruff format` rewrapped three files** after the suite passed. The
+    reset tests were rerun after formatting.
+  - **Phases 3–7 of the plan still have unticked boxes** although they
+    are built. The agent pointed this out and left them alone.
+
 ## 2026-10-07 — Account security, Phase 9: change email by confirmation link, plus an Actions section and animated icons
 
 ### Prompts

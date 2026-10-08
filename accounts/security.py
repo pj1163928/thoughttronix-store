@@ -11,7 +11,8 @@ the alert email, "prove it's you": the current-password check that
 guards every sensitive change, with the password change, the username
 change and "sign out of all other devices" it guards, the list of
 signed-in devices that lets one be signed out at a time, the signed
-links that verify an email address, and those that confirm a new one.
+links that verify an email address, those that confirm a new one, and
+the record of a forgotten password being reset.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -451,6 +452,41 @@ def username_changed(
             f"The username for your ThoughtTronix account was changed from "
             f'"{old_username}" to "{new_username}". Sign in with the new '
             f"username or your email address from now on."
+        ),
+    )
+
+
+def password_reset_requested(user: User, *, request: HttpRequest | None = None) -> None:
+    """Record that a reset link was emailed to ``user``.
+
+    Called only when the address matched an account. One that matched
+    nobody records nothing, just as the reset page shows nothing
+    different. There is no actor, because anyone can type an address into
+    the form. No alert is sent either: the reset email itself tells the
+    owner, and says to ignore it if they didn't ask.
+    """
+    record_event(Kind.PASSWORD_RESET_REQUESTED, user, request=request)
+
+
+def password_reset_completed(user: User, *, request: HttpRequest | None = None) -> None:
+    """Record that ``user`` set a new password from a reset link, and tell them.
+
+    Call after the new password is saved. Saving it has already signed out
+    every session, because the password is part of the session auth hash.
+    The reset signs nobody in, so unlike ``password_changed`` there is no
+    session here to keep, and every device row goes. The actor is the
+    owner: following the link proved they read mail at the account's
+    address.
+    """
+    user.user_sessions.all().delete()
+    record_event(Kind.PASSWORD_RESET_COMPLETED, user, actor=user, request=request)
+    send_alert(
+        user,
+        "Your password was reset",
+        (
+            "The password for your ThoughtTronix account was reset using a "
+            "link emailed to this address, and every device signed in to it "
+            "was signed out."
         ),
     )
 

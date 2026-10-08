@@ -353,15 +353,15 @@ user in. The sign-in page links to the reset page.
 
 ### Acceptance criteria
 
-- [ ] The request page shows the same response and redirect for a known
+- [x] The request page shows the same response and redirect for a known
       and an unknown email.
-- [ ] A reset link works once, expires after an hour (fixed clock), and
+- [x] A reset link works once, expires after an hour (fixed clock), and
       dies if the password changes first.
-- [ ] Completing a reset invalidates every existing session and leaves the
+- [x] Completing a reset invalidates every existing session and leaves the
       user signed out.
-- [ ] "Reset requested" is logged only for a matched account. "Reset
+- [x] "Reset requested" is logged only for a matched account. "Reset
       completed" is logged and alerted.
-- [ ] No reset view redirects to an un-namespaced URL name.
+- [x] No reset view redirects to an un-namespaced URL name.
 
 ---
 

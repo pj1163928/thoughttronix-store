@@ -105,6 +105,9 @@ LOGIN_REDIRECT_URL = "products:catalog"
 
 LOGOUT_REDIRECT_URL = "products:catalog"
 
+# A password-reset link lasts one hour (Django's default is three days).
+PASSWORD_RESET_TIMEOUT = 3600
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",

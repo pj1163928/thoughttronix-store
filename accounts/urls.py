@@ -27,6 +27,23 @@ urlpatterns = [
         name="verify_email",
     ),
     path("password/", views.PasswordChangeView.as_view(), name="password_change"),
+    # A forgotten password: no sign-in on any of these.
+    path("password/reset/", views.PasswordResetView.as_view(), name="password_reset"),
+    path(
+        "password/reset/sent/",
+        views.PasswordResetDoneView.as_view(),
+        name="password_reset_done",
+    ),
+    path(
+        "password/reset/complete/",
+        views.PasswordResetCompleteView.as_view(),
+        name="password_reset_complete",
+    ),
+    path(
+        "password/reset/<uidb64>/<token>/",
+        views.PasswordResetConfirmView.as_view(),
+        name="password_reset_confirm",
+    ),
     path(
         "sessions/sign-out-others/",
         views.SignOutOthersView.as_view(),
