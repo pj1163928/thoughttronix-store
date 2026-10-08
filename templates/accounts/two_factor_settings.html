@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Two-factor settings — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-md">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Two-factor settings</h1>
+        <p class="text-sm opacity-70">
+          Signing in always asks for a code from your authenticator app.
+          Choose when else to be asked.
+        </p>
+
+        <form method="post" action="{% url 'accounts:two_factor_settings' %}" class="mt-4 space-y-4">
+          {% csrf_token %}
+
+          {% for error in form.non_field_errors %}
+            <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+          {% endfor %}
+
+          <fieldset class="space-y-3 rounded-box bg-base-200 p-4">
+            <legend class="sr-only">Also ask for a code</legend>
+            {% for field in form %}
+              {% if field.widget_type == "checkbox" %}
+                <div>
+                  <label class="flex items-start gap-3" for="{{ field.id_for_label }}">
+                    {{ field }}
+                    <span>
+                      <span class="font-semibold">{{ field.label }}</span>
+                      <span class="block text-xs opacity-60">{{ field.help_text }}</span>
+                    </span>
+                  </label>
+                  {% for error in field.errors %}
+                    <p class="mt-1 text-sm text-error">{{ error }}</p>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </fieldset>
+
+          <p class="text-sm opacity-70">To save, confirm it's you with your password and a code.</p>
+
+          {% for field in form %}
+            {% if field.widget_type != "checkbox" %}
+              <div>
+                <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% for error in field.errors %}
+                  <p class="mt-1 text-sm text-error">{{ error }}</p>
+                {% endfor %}
+              </div>
+            {% endif %}
+          {% endfor %}
+
+          <div class="flex justify-end gap-2">
+            <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save settings</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

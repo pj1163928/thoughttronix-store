@@ -6,9 +6,12 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.views import PasswordChangeView as DjangoPasswordChangeView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import NON_FIELD_ERRORS
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
+from django.utils.decorators import method_decorator
+from django.utils.safestring import mark_safe
 from django.views import View
+from django.views.decorators.cache import never_cache
 from django.views.generic import (
     CreateView,
     DeleteView,
@@ -31,8 +34,10 @@ from .forms import (
     SignOutDeviceForm,
     SignOutOthersForm,
     SignupForm,
+    TwoFactorSettingsForm,
+    TwoFactorSetupForm,
 )
-from .models import Address, SecurityEvent
+from .models import Address, SecurityEvent, TwoFactorDevice
 
 
 class SignupView(SuccessMessageMixin, CreateView):
@@ -127,6 +132,9 @@ class AccountView(LoginRequiredMixin, FormView):
         user = self.request.user
         return super().get_context_data(
             password_last_changed=user.password_last_changed,
+            two_factor_device=TwoFactorDevice.objects.confirmed()
+            .filter(user=user)
+            .first(),
             address_count=user.addresses.count(),
             user_sessions=user.user_sessions.active(),
             current_session_id=security.current_session_id(self.request),
@@ -369,6 +377,104 @@ class PasswordChangeView(DjangoPasswordChangeView):
             "Password changed. Every other device has been signed out.",
         )
         return response
+
+
+# --- Two-factor authentication ----------------------------------------------
+
+
+@method_decorator(never_cache, name="dispatch")
+class TwoFactorSetupView(LoginRequiredMixin, FormView):
+    """Turn two-factor on: scan the QR code, then enter a working code.
+
+    Opening the page gives the account a pending device, and two-factor
+    is on only once a code from it checks out. The QR code and setup key
+    are shown only while setup is pending; once it's on, this page sends
+    the user back to their Account page. No current password is asked
+    for (see ``TwoFactorSetupForm``).
+
+    Success doesn't redirect: the recovery codes are rendered into the
+    response itself, are never stored in plain text, and so can't be
+    shown again. Nothing here may be cached, by the browser or anyone.
+    """
+
+    form_class = TwoFactorSetupForm
+    template_name = "accounts/two_factor_setup.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            self.device = security.pending_two_factor_device(request.user)
+            if self.device is None:
+                messages.info(request, "Two-factor authentication is already on.")
+                return redirect("accounts:account")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), "device": self.device}
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            # segno's own SVG, built from the secret: no user input reaches it.
+            qr_svg=mark_safe(security.provisioning_qr_svg(self.device)),
+            setup_key=security.setup_key(self.device),
+            **kwargs,
+        )
+
+    def form_valid(self, form):
+        codes = security.enable_two_factor(self.device, request=self.request)
+        messages.success(self.request, "Two-factor authentication is on.")
+        return render(
+            self.request, "accounts/recovery_codes_issued.html", {"codes": codes}
+        )
+
+
+class TwoFactorSettingsView(LoginRequiredMixin, FormView):
+    """Choose when to be asked for a code, besides signing in.
+
+    Only for accounts with two-factor on; anyone else is sent to their
+    Account page to set it up. Saving takes the current password and a
+    code (see ``TwoFactorSettingsForm``). Recording and the alert are
+    ``accounts.security``'s.
+    """
+
+    form_class = TwoFactorSettingsForm
+    template_name = "accounts/two_factor_settings.html"
+    success_url = reverse_lazy("accounts:account")
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            self.device = (
+                TwoFactorDevice.objects.confirmed().filter(user=request.user).first()
+            )
+            if self.device is None:
+                messages.info(request, "Turn on two-factor authentication first.")
+                return redirect("accounts:account")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_initial(self):
+        return {
+            "ask_at_checkout": self.device.ask_at_checkout,
+            "ask_for_security_changes": self.device.ask_for_security_changes,
+        }
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def form_valid(self, form):
+        changed = security.update_two_factor_settings(
+            self.request.user,
+            ask_at_checkout=form.cleaned_data["ask_at_checkout"],
+            ask_for_security_changes=form.cleaned_data["ask_for_security_changes"],
+            request=self.request,
+        )
+        if changed:
+            messages.success(self.request, "Two-factor settings saved.")
+        else:
+            messages.info(self.request, "Nothing changed.")
+        return super().form_valid(form)
 
 
 # --- Resetting a forgotten password -----------------------------------------

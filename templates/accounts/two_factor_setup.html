@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Set up two-factor — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-md">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Set up two-factor authentication</h1>
+        <p class="text-sm opacity-70">
+          Once it's on, signing in takes your password and a code from an
+          authenticator app on your phone, such as Google Authenticator,
+          1Password or Authy. The app works offline.
+        </p>
+
+        <ol class="mt-4 space-y-6">
+          <li>
+            <h2 class="font-semibold">1. Scan this QR code with your app</h2>
+            <div class="mx-auto mt-3 w-52 overflow-hidden rounded-box bg-white">
+              {{ qr_svg }}
+            </div>
+            <details class="mt-3 text-sm">
+              <summary class="cursor-pointer opacity-70">Can't scan it? Type this setup key instead</summary>
+              <p class="mt-2 break-all rounded-box bg-base-200 p-3 text-center font-mono text-base tracking-wide select-all">{{ setup_key }}</p>
+              <p class="mt-1 text-xs opacity-60">Choose a time-based key if your app asks.</p>
+            </details>
+          </li>
+
+          <li>
+            <h2 class="font-semibold">2. Enter the six-digit code it shows</h2>
+            <p class="mt-1 text-sm opacity-70">
+              Two-factor stays off until a code works, so you can't lock
+              yourself out by stopping halfway.
+            </p>
+            <form method="post" action="{% url 'accounts:two_factor_setup' %}" class="mt-3 space-y-4">
+              {% csrf_token %}
+
+              {% for error in form.non_field_errors %}
+                <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+              {% endfor %}
+
+              {% for field in form %}
+                <div>
+                  <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% for error in field.errors %}
+                    <p class="mt-1 text-sm text-error">{{ error }}</p>
+                  {% endfor %}
+                </div>
+              {% endfor %}
+
+              <div class="flex justify-end gap-2">
+                <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+                <button type="submit" class="btn btn-primary">Turn on two-factor</button>
+              </div>
+            </form>
+          </li>
+        </ol>
+      </div>
+    </div>
+  </div>
+{% endblock %}

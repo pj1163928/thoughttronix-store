@@ -18,7 +18,7 @@
   {% endif %}
 
   {# What the account is: one card per thing that can be checked at a glance. #}
-  <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <div class="mt-6 grid gap-4 sm:grid-cols-2">
     <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="profile-heading">
       <div class="card-body">
         <h2 id="profile-heading" class="card-title text-base">
@@ -85,6 +85,39 @@
       </div>
     </section>
 
+    <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="two-factor-heading">
+      <div class="card-body">
+        <h2 id="two-factor-heading" class="card-title text-base">
+          <span class="text-primary">{% include "accounts/partials/_icon.html" with name="phone" motion="wiggle" delay="0.15" only %}</span>
+          Two-factor
+        </h2>
+        {% if two_factor_device %}
+          <p class="text-sm">
+            <span class="badge badge-success badge-sm mr-1 gap-1">{% include "accounts/partials/_icon.html" with name="check" size="h-3.5 w-3.5" delay="0.6" only %}<span>On</span></span>
+            Since <time datetime="{{ two_factor_device.confirmed_at|date:'c' }}">{{ two_factor_device.confirmed_at|date:"j M Y, H:i T" }}</time>,
+            using an authenticator app.
+          </p>
+          <ul class="space-y-1 text-sm">
+            <li>Asked for at every sign-in</li>
+            <li>{% if two_factor_device.ask_at_checkout %}Asked for{% else %}Not asked for{% endif %} when you place an order</li>
+            <li>{% if two_factor_device.ask_for_security_changes %}Asked for{% else %}Not asked for{% endif %} on security changes</li>
+          </ul>
+          <div class="card-actions mt-auto justify-end pt-2">
+            <a href="{% url 'accounts:two_factor_settings' %}" class="btn btn-ghost btn-sm">Two-factor settings</a>
+          </div>
+        {% else %}
+          <p class="text-sm">
+            <span class="badge badge-ghost badge-sm mr-1">Off</span>
+            Add a code from an authenticator app to every sign-in, so a
+            stolen password isn't enough.
+          </p>
+          <div class="card-actions mt-auto justify-end pt-2">
+            <a href="{% url 'accounts:two_factor_setup' %}" class="btn btn-ghost btn-sm">Set up two-factor</a>
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
     <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="addresses-heading">
       <div class="card-body">
         <h2 id="addresses-heading" class="card-title text-base">
@@ -111,7 +144,7 @@
       <span class="text-primary">{% include "accounts/partials/_icon.html" with name="bolt" delay="0.2" only %}</span>
       Actions
     </h2>
-    <p class="mt-1 text-sm opacity-70">Each one asks for your current password first.</p>
+    <p class="mt-1 text-sm opacity-70">Each one asks for your current password first{% if two_factor_device.ask_for_security_changes %}, and a code from your authenticator app{% endif %}.</p>
 
     <div class="mt-4 grid gap-4 sm:grid-cols-3">
       <a href="{% url 'accounts:password_change' %}" class="group card bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">

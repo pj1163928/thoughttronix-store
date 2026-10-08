@@ -28,7 +28,13 @@ from accounts.mixins import StaffRequiredMixin
 from accounts.models import ADDRESS_FIELDS, Address
 from products.models import Product
 
-from .forms import ApplyDiscountForm, CheckoutForm, DiscountCodeForm, OrderStatusForm
+from .forms import (
+    ApplyDiscountForm,
+    CheckoutForm,
+    CustomerCheckoutForm,
+    DiscountCodeForm,
+    OrderStatusForm,
+)
 from .models import Cart, CartItem, DiscountCode, Order
 from .services import place_order
 
@@ -160,7 +166,7 @@ class CheckoutView(LoginRequiredMixin, FormView):
     """
 
     template_name = "orders/checkout.html"
-    form_class = CheckoutForm
+    form_class = CustomerCheckoutForm
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
@@ -212,6 +218,15 @@ class CheckoutView(LoginRequiredMixin, FormView):
             if default is not None:
                 initial |= address_initial(default, prefix)
         return initial
+
+    def get_form_kwargs(self):
+        # The customer, so the form can ask for an authenticator code if
+        # they've chosen to be asked at checkout.
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

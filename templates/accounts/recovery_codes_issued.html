@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% comment %}
+  A fresh set of recovery codes, shown this once. Rendered straight into
+  the response that made them, never stored in plain text and never
+  cached, so there is no way back to this page.
+{% endcomment %}
+
+{% block title %}Your recovery codes — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-md">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Save your recovery codes</h1>
+        <p class="text-sm opacity-70">
+          If you lose your phone, sign in with one of these instead of a code
+          from your app. Each one works once.
+        </p>
+
+        <div class="alert alert-warning mt-2" role="alert">
+          {% include "accounts/partials/_icon.html" with name="warning" only %}
+          <span>
+            This is the only time they'll be shown. Print them, or keep them
+            in a password manager, before you leave this page.
+          </span>
+        </div>
+
+        <ul class="mt-4 grid grid-cols-2 gap-2 rounded-box bg-base-200 p-4 text-center font-mono text-lg tracking-wide select-all" aria-label="Recovery codes">
+          {% for code in codes %}
+            <li>{{ code }}</li>
+          {% endfor %}
+        </ul>
+
+        <div class="card-actions mt-4 justify-end">
+          <a href="{% url 'accounts:account' %}" class="btn btn-primary">I've saved them</a>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
