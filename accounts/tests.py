@@ -107,6 +107,6 @@ def test_navbar_greets_signed_in_customer(client, customer):
 
     page = client.get(reverse("products:catalog")).content.decode()
 
-    assert "Hi, customer" in page
+    assert customer.greeting() in page
     assert "Sign out" in page
     assert reverse("accounts:signup") not in page

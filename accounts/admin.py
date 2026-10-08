@@ -1,16 +1,63 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
+from . import security
 from .models import Address, SecurityEvent, User
 
 
 @admin.register(User)
 class UserAdmin(DjangoUserAdmin):
+    """Django's user admin, plus the superuser overrides.
+
+    Overrides are admin actions gated on ``is_superuser`` alone, so no
+    model permission can hand them to other staff. Each one skips the
+    acting admin's own account and every superuser (see
+    ``security.overridable``), and the security work is
+    ``accounts.security``'s.
+    """
+
     fieldsets = (
         *DjangoUserAdmin.fieldsets,
-        ("ThoughtTronix", {"fields": ("job_title",)}),
+        ("ThoughtTronix", {"fields": ("job_title", "email_verified_at")}),
     )
-    list_display = ("username", "email", "job_title", "is_staff")
+    readonly_fields = ("email_verified_at",)
+    list_display = ("username", "email", "email_verified", "job_title", "is_staff")
+    actions = ["mark_email_verified"]
+
+    def has_override_permission(self, request):
+        return request.user.is_active and request.user.is_superuser
+
+    @admin.display(boolean=True, description="Email verified")
+    def email_verified(self, obj):
+        return obj.email_verified
+
+    @admin.action(description="Mark email verified", permissions=["override"])
+    def mark_email_verified(self, request, queryset):
+        allowed, skipped = security.overridable(request.user, queryset)
+        verified = [
+            user
+            for user in allowed
+            if security.mark_email_verified(user, actor=request.user, request=request)
+        ]
+        self._report(request, "Marked verified", verified)
+        unchanged = [user for user in allowed if user not in verified]
+        self._report(
+            request,
+            "Already verified or no email, so left alone",
+            unchanged,
+            messages.INFO,
+        )
+        self._report(
+            request,
+            "Skipped — overrides never apply to your own account or a superuser's",
+            skipped,
+            messages.WARNING,
+        )
+
+    def _report(self, request, what, users, level=messages.SUCCESS):
+        if users:
+            names = ", ".join(user.get_username() for user in users)
+            self.message_user(request, f"{what}: {names}.", level)
 
 
 @admin.register(Address)

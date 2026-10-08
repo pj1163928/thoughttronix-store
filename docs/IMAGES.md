@@ -24,9 +24,11 @@ is set **and** the file is in storage right now. Otherwise it returns
 the category placeholder. Media is served under `SERVE_MEDIA`, which is
 deliberately independent of `DEBUG`, so the check and the server agree.
 
-## One validator, one pipeline
+## One set of rules, one pipeline
 
-`validate_image` is the only gate. Forms call it in `clean_image`, and the
+`validate_image` is the only gate for product photos, and
+`validate_avatar` for profile pictures; both run the same checks
+(`_checked`). Forms call it in `clean_image`, and the
 seed calls it on the baseline photos. It checks the file size, the type
 (by content, not by name), the megapixel count (before decoding), the
 minimum side, the aspect ratio, animation and a clean decode. Each
@@ -74,3 +76,17 @@ never fail or roll back the purchase. Use a lambda, not
 `functools.partial`, for a robust callback: Django logs a failure by
 `__qualname__`, and a partial doesn't have one. The seed builds orders
 directly, so it calls `snapshot_for_order` itself.
+
+## Profile pictures
+
+`User.avatar` holds one square WebP, `AVATAR_SIZE` (180) pixels a side.
+`validate_avatar` applies every product rule except the minimum side
+(180, not 600), then crops the centre square and scales it.
+`ProfileForm.clean_photo` calls it, and `ProfileForm.save` hands the
+result to `set_avatar` (or calls `remove_avatar`). Both delete the old
+file on commit, and a `post_delete` receiver on `User` deletes it with the
+account. Templates render `User.avatar_picture`, a `Picture` that falls
+back to the silhouette at `assets/images/placeholders/avatar.svg` when
+there is no picture or its file is missing. The navbar's profile menu and
+the Account page show it at 36, 48 and 64 pixels, and Edit profile at
+full size.

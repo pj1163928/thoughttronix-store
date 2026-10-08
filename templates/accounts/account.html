@@ -19,6 +19,14 @@
     <section class="card bg-base-100 shadow-md" aria-labelledby="profile-heading">
       <div class="card-body">
         <h2 id="profile-heading" class="card-title text-base">Profile</h2>
+        <div class="flex items-center gap-3">
+          <div class="avatar">
+            <div class="w-16 rounded-full">
+              {% include "products/partials/_picture.html" with pic=user.avatar_picture width=64 height=64 only %}
+            </div>
+          </div>
+          <p class="font-semibold">{{ user.display_name }}</p>
+        </div>
         <dl class="space-y-2 text-sm">
           <div>
             <dt class="opacity-70">Username</dt>
@@ -27,11 +35,26 @@
           <div>
             <dt class="opacity-70">Email</dt>
             <dd class="font-semibold">
-              {% if user.email %}{{ user.email }}{% else %}<span class="italic opacity-70">None</span>{% endif %}
+              {% if user.email %}
+                {{ user.email }}
+                {% if user.email_verified %}
+                  <span class="badge badge-success badge-sm ml-1">Verified</span>
+                {% endif %}
+              {% else %}
+                <span class="italic opacity-70">None</span>
+              {% endif %}
             </dd>
           </div>
         </dl>
+        {% if user.email and not user.email_verified %}
+          <form method="post" action="{% url 'accounts:send_verification' %}" class="flex flex-wrap items-center gap-2 text-sm text-warning">
+            {% csrf_token %}
+            <span>Email not verified —</span>
+            <button type="submit" class="btn btn-link btn-xs p-0">resend link</button>
+          </form>
+        {% endif %}
         <div class="card-actions mt-2 justify-end">
+          <a href="{% url 'accounts:edit_profile' %}" class="btn btn-ghost btn-sm">Edit profile</a>
           <a href="{% url 'accounts:change_username' %}" class="btn btn-ghost btn-sm">Change username</a>
         </div>
       </div>

@@ -9,9 +9,9 @@ by phase. What it holds today is the foundation the rest is built on,
 recording a ``SecurityEvent``, the sign-in cooldown built on top of it,
 the alert email, "prove it's you": the current-password check that
 guards every sensitive change, with the password change, the username
-change and "sign out of all other devices" it guards, and the list of
-signed-in devices that
-lets one be signed out at a time.
+change and "sign out of all other devices" it guards, the list of
+signed-in devices that lets one be signed out at a time, and the signed
+links that verify an email address.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -24,23 +24,24 @@ from __future__ import annotations
 
 import ipaddress
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.contrib.auth import logout, update_session_auth_hash
+from django.core import signing
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from .models import SecurityEvent, UserSession
+from .models import SecurityEvent, User, UserSession
 
 if TYPE_CHECKING:
     from django.contrib.sessions.backends.base import SessionBase
     from django.http import HttpRequest
-
-    from .models import User
 
 Kind = SecurityEvent.Kind
 
@@ -579,6 +580,138 @@ def _forget_other_sessions(user: User, request: HttpRequest | None) -> None:
 def _user_agent(request: HttpRequest) -> str:
     max_length = UserSession._meta.get_field("user_agent").max_length
     return request.META.get("HTTP_USER_AGENT", "")[:max_length]
+
+
+# --- Verifying an email address -----------------------------------------------------
+#
+# A verification link carries a signed token naming the account and the
+# address it was sent to, with no table behind it. The signature makes it
+# unforgeable; the address in it makes it die the moment the account's
+# email changes; the time in it makes it die after a day. Verification is
+# a courtesy, never a gate: an unverified account works like any other.
+
+EMAIL_VERIFICATION_MAX_AGE = timedelta(hours=24)
+_VERIFICATION_SALT = "accounts.security.verify_email"
+
+
+def make_verification_token(user: User, *, at: datetime | None = None) -> str:
+    """A token that verifies ``user``'s current email, valid for 24 hours.
+
+    ``at`` stamps the token with a given moment instead of now; tests use
+    it to pin the clock.
+    """
+    issued = at or timezone.now()
+    return signing.Signer(salt=_VERIFICATION_SALT).sign_object(
+        {"user": user.pk, "email": user.email, "at": int(issued.timestamp())}
+    )
+
+
+def user_for_verification_token(
+    token: str, *, now: datetime | None = None
+) -> User | None:
+    """The account ``token`` verifies, or ``None`` if it verifies nothing.
+
+    A token is refused when its signature doesn't check out, when it is
+    more than 24 hours old, when its account is gone, or when the account's
+    email is no longer the one it was sent to. A token for an address
+    that is already verified is still honoured; verifying it again changes
+    nothing.
+    """
+    try:
+        payload = signing.Signer(salt=_VERIFICATION_SALT).unsign_object(token)
+        issued = datetime.fromtimestamp(payload["at"], tz=UTC)
+        user_id, email = payload["user"], payload["email"]
+    except (signing.BadSignature, KeyError, TypeError, ValueError, OverflowError):
+        return None
+    now = now or timezone.now()
+    if not issued <= now <= issued + EMAIL_VERIFICATION_MAX_AGE:
+        return None
+    user = User.objects.filter(pk=user_id).first()
+    if user is None or not email or user.email != email:
+        return None
+    return user
+
+
+def send_verification_email(user: User, request: HttpRequest) -> bool:
+    """Email ``user`` a link that confirms their address.
+
+    Sent at sign-up and whenever the owner asks for another. Each link
+    is independent: sending a new one doesn't cancel the last. An account
+    with no email is skipped. Returns whether an email was sent.
+    """
+    if not user.email:
+        return False
+    link = request.build_absolute_uri(
+        reverse("accounts:verify_email", args=[make_verification_token(user)])
+    )
+    body = render_to_string(
+        "accounts/email/verify_email.txt",
+        {"user": user, "link": link, "hours": _hours(EMAIL_VERIFICATION_MAX_AGE)},
+    )
+    send_mail("ThoughtTronix: Confirm your email address", body, None, [user.email])
+    return True
+
+
+def mark_email_verified(
+    user: User,
+    *,
+    actor: User | None = None,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Record that ``user``'s current email is confirmed.
+
+    ``actor`` defaults to ``user``, who proved it by following the link;
+    an admin marking it verified passes the admin, and the owner is then
+    emailed, as for every override. Verifying an address that is already
+    verified, or an account with no email, changes nothing and records
+    nothing. Returns whether anything changed.
+    """
+    if not user.email or user.email_verified:
+        return False
+    at = at or timezone.now()
+    user.email_verified_at = at
+    user.save(update_fields=["email_verified_at"])
+    record_event(
+        Kind.EMAIL_VERIFIED,
+        user,
+        actor=actor or user,
+        request=request,
+        details={"email": user.email},
+        at=at,
+    )
+    if actor is not None and actor != user:
+        send_alert(
+            user,
+            "Your email address was confirmed",
+            (
+                f"ThoughtTronix support marked {user.email} as the confirmed "
+                f"email address for your account."
+            ),
+            at=at,
+        )
+    return True
+
+
+def overridable(admin: User, users: Iterable[User]) -> tuple[list[User], list[User]]:
+    """Split ``users`` into those ``admin`` may override and those skipped.
+
+    No superuser may apply an override to their own account or to another
+    superuser's, so that no admin can quietly take over another. Both are
+    skipped; the caller names them in a warning. Superusers change their
+    own accounts through the Account page, like everyone else.
+    """
+    allowed, skipped = [], []
+    for user in users:
+        if user.pk == admin.pk or user.is_superuser:
+            skipped.append(user)
+        else:
+            allowed.append(user)
+    return allowed, skipped
+
+
+def _hours(duration: timedelta) -> int:
+    return int(duration / timedelta(hours=1))
 
 
 # --- Alerts -------------------------------------------------------------------------

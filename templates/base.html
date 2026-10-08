@@ -18,22 +18,57 @@
             🧠 ThoughtTronix
           </a>
         </div>
-        <div class="navbar-end gap-2">
+        <div class="navbar-end gap-1">
           {% if user.is_authenticated %}
             {% if user.is_staff %}
               <a href="{% url 'products:manage_products' %}" class="btn btn-ghost btn-sm">
                 Back office
               </a>
             {% endif %}
-            <a href="{% url 'orders:history' %}" class="btn btn-ghost btn-sm">Orders</a>
-            <a href="{% url 'wishlist:list' %}" class="btn btn-ghost btn-sm">Wishlist</a>
-            <a href="{% url 'accounts:account' %}" class="btn btn-ghost btn-sm">Account</a>
+            {# Icon links, labelled for screen readers and titled for a hover hint. #}
+            <a href="{% url 'orders:history' %}" class="btn btn-ghost btn-circle" aria-label="Orders" title="Orders">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-7 w-7" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m21 7.5-9-5.25L3 7.5m18 0-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+              </svg>
+            </a>
+            <a href="{% url 'wishlist:list' %}" class="btn btn-ghost btn-circle" aria-label="Wishlist" title="Wishlist">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-7 w-7" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z" />
+              </svg>
+            </a>
             {% include "orders/partials/_cart_badge.html" %}
-            <span class="text-sm opacity-70">Hi, {{ user.username }}</span>
-            <form method="post" action="{% url 'accounts:logout' %}">
-              {% csrf_token %}
-              <button type="submit" class="btn btn-ghost btn-sm">Sign out</button>
-            </form>
+            {# The profile menu, always last: CSS-only (DaisyUI's focus dropdown), no JavaScript. #}
+            <div class="dropdown dropdown-end ml-1">
+              <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar" aria-label="Your profile menu" title="Your profile">
+                <div class="w-10 rounded-full">
+                  {% include "products/partials/_picture.html" with pic=user.avatar_picture width=40 height=40 eager=True only %}
+                </div>
+              </div>
+              <div tabindex="0" class="dropdown-content z-10 mt-3 w-64 rounded-box bg-base-100 p-4 shadow-lg">
+                <div class="flex items-center gap-3">
+                  <div class="avatar">
+                    <div class="w-12 rounded-full">
+                      {% include "products/partials/_picture.html" with pic=user.avatar_picture width=48 height=48 only %}
+                    </div>
+                  </div>
+                  <div class="min-w-0">
+                    <p class="text-sm opacity-70">{{ user.greeting }}</p>
+                    <p class="truncate font-semibold">{{ user.display_name }}</p>
+                  </div>
+                </div>
+                <ul class="menu mt-2 w-full p-0">
+                  <li><a href="{% url 'accounts:account' %}">Account</a></li>
+                  <li><a href="{% url 'accounts:edit_profile' %}">Edit profile</a></li>
+                  {# Signing out is a POST; the button submits the form below by id. #}
+                  <li class="mt-1 border-t border-base-300 pt-1">
+                    <button type="submit" form="sign-out-form">Sign out</button>
+                  </li>
+                </ul>
+                <form id="sign-out-form" method="post" action="{% url 'accounts:logout' %}" hidden>
+                  {% csrf_token %}
+                </form>
+              </div>
+            </div>
           {% else %}
             <a href="{% url 'accounts:login' %}" class="btn btn-ghost btn-sm">Sign in</a>
             <a href="{% url 'accounts:signup' %}" class="btn btn-primary btn-sm">Sign up</a>

@@ -4,13 +4,15 @@ from django.contrib.auth.views import LoginView, LogoutView
 from django.contrib.auth.views import PasswordChangeView as DjangoPasswordChangeView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import NON_FIELD_ERRORS
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
+from django.views import View
 from django.views.generic import (
     CreateView,
     DeleteView,
     FormView,
     ListView,
+    TemplateView,
     UpdateView,
 )
 
@@ -19,6 +21,7 @@ from .forms import (
     AddressForm,
     ChangeUsernameForm,
     PasswordChangeForm,
+    ProfileForm,
     SignInForm,
     SignOutDeviceForm,
     SignOutOthersForm,
@@ -37,7 +40,10 @@ class SignupView(SuccessMessageMixin, CreateView):
     form_class = SignupForm
     template_name = "accounts/signup.html"
     success_url = reverse_lazy("accounts:login")
-    success_message = "Account created — you can now sign in."
+    success_message = (
+        "Account created — you can now sign in. We've emailed you a link "
+        "to confirm your address."
+    )
 
     def form_valid(self, form):
         response = super().form_valid(form)
@@ -47,6 +53,7 @@ class SignupView(SuccessMessageMixin, CreateView):
             actor=self.object,
             request=self.request,
         )
+        security.send_verification_email(self.object, self.request)
         return response
 
 
@@ -173,6 +180,21 @@ class SignOutDeviceView(LoginRequiredMixin, FormView):
         return super().form_valid(form)
 
 
+class EditProfileView(LoginRequiredMixin, SuccessMessageMixin, UpdateView):
+    """Your name and profile picture: what the navbar's profile menu shows.
+
+    Always the signed-in user's own profile; there is no pk to tamper with.
+    """
+
+    form_class = ProfileForm
+    template_name = "accounts/edit_profile.html"
+    success_url = reverse_lazy("accounts:account")
+    success_message = "Profile saved."
+
+    def get_object(self, queryset=None):
+        return self.request.user
+
+
 class ChangeUsernameView(LoginRequiredMixin, FormView):
     """Rename the account, after the current password.
 
@@ -200,6 +222,54 @@ class ChangeUsernameView(LoginRequiredMixin, FormView):
             self.request, f"Username changed. You're now {user.get_username()}."
         )
         return super().form_valid(form)
+
+
+class SendVerificationView(LoginRequiredMixin, View):
+    """Email the signed-in user a fresh link to confirm their address.
+
+    POST only; the Account page's "resend link" button is a form.
+    """
+
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        if user.email_verified:
+            messages.info(request, "Your email address is already confirmed.")
+        elif security.send_verification_email(user, request):
+            messages.success(
+                request, f"We've sent a confirmation link to {user.email}."
+            )
+        else:
+            messages.warning(request, "Your account has no email address to confirm.")
+        return redirect("accounts:account")
+
+
+class VerifyEmailView(TemplateView):
+    """Confirm an email address from the link that was mailed to it.
+
+    No sign-in is needed: the token is the proof. GET only shows what
+    would be confirmed, behind a button, because mail scanners fetch links
+    to look at them; only the POST from that button verifies.
+    """
+
+    template_name = "accounts/verify_email.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.target = security.user_for_verification_token(kwargs["token"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(target=self.target, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        if self.target is None:
+            return self.get(request, *args, **kwargs)
+        security.mark_email_verified(self.target, request=request)
+        messages.success(request, f"Thanks — {self.target.email} is confirmed.")
+        if request.user.is_authenticated:
+            return redirect("accounts:account")
+        return redirect("accounts:login")
 
 
 class PasswordChangeView(DjangoPasswordChangeView):

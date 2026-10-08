@@ -1,0 +1,13 @@
+{% autoescape off %}Hi {{ user.get_username }},
+
+Please confirm that {{ user.email }} is your email address, so we can
+reach you if you ever need to reset your password:
+
+{{ link }}
+
+The link works for {{ hours }} hours. Your account already works either way.
+
+Didn't sign up for ThoughtTronix? You can ignore this email.
+
+— The ThoughtTronix Store
+{% endautoescape %}

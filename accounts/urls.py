@@ -6,7 +6,19 @@ app_name = "accounts"
 
 urlpatterns = [
     path("", views.AccountView.as_view(), name="account"),
+    path("profile/", views.EditProfileView.as_view(), name="edit_profile"),
     path("username/", views.ChangeUsernameView.as_view(), name="change_username"),
+    path(
+        "email/verify/",
+        views.SendVerificationView.as_view(),
+        name="send_verification",
+    ),
+    # The token is the proof, so no sign-in; GET only shows a button.
+    path(
+        "email/verify/<str:token>/",
+        views.VerifyEmailView.as_view(),
+        name="verify_email",
+    ),
     path("password/", views.PasswordChangeView.as_view(), name="password_change"),
     path(
         "sessions/sign-out-others/",

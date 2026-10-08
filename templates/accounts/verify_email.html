@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm your email — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-sm">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        {% if target %}
+          <h1 class="card-title text-2xl">Confirm your email</h1>
+          <p class="text-sm">
+            Confirm that <span class="font-semibold">{{ target.email }}</span> is your
+            email address. We'll use it if you ever need to reset your password.
+          </p>
+
+          <form method="post" class="mt-4">
+            {% csrf_token %}
+            <div class="flex justify-end">
+              <button type="submit" class="btn btn-primary">Confirm</button>
+            </div>
+          </form>
+        {% else %}
+          <h1 class="card-title text-2xl">This link doesn't work</h1>
+          <p class="text-sm">
+            It may have expired — links last 24 hours — or the account's email
+            address may have changed since it was sent.
+          </p>
+          <p class="text-sm opacity-70">
+            Signed in? Your Account page can send you a new one.
+          </p>
+          <div class="card-actions mt-2 justify-end">
+            {% if user.is_authenticated %}
+              <a href="{% url 'accounts:account' %}" class="btn btn-primary btn-sm">Go to your account</a>
+            {% else %}
+              <a href="{% url 'accounts:login' %}" class="btn btn-primary btn-sm">Sign in</a>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

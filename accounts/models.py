@@ -7,8 +7,16 @@ from django.contrib.auth.models import UserManager as DjangoUserManager
 from django.contrib.auth.validators import UnicodeUsernameValidator
 from django.db import models, transaction
 from django.db.models.functions import Lower
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
+
+from products.images import (
+    AVATAR_FOLDER,
+    avatar_picture,
+    delete_files_on_commit,
+)
 
 from .validators import username_no_at_validator, zip_validator
 
@@ -125,6 +133,12 @@ class User(AbstractUser):
     # signs out every session that isn't refreshed — exactly as a password
     # change does, without changing the password. Not a secret.
     session_key = models.CharField(max_length=32, blank=True, editable=False)
+    # When the owner proved they receive mail at ``email``. Null until
+    # then; an unverified account works exactly like a verified one.
+    email_verified_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # A square profile picture, written only by ``products.images``.
+    # Templates read ``avatar_picture``, never this field.
+    avatar = models.ImageField(upload_to=AVATAR_FOLDER, blank=True, editable=False)
 
     objects = UserManager()
 
@@ -175,6 +189,36 @@ class User(AbstractUser):
         self.save(update_fields=["session_key"])
 
     @property
+    def display_name(self):
+        """The person's name if they've given one, otherwise their username."""
+        return self.get_full_name() or self.get_username()
+
+    @property
+    def avatar_picture(self):
+        """Their profile picture as a ``Picture``, or the silhouette placeholder."""
+        return avatar_picture(self, f"Profile picture of {self.display_name}")
+
+    def greeting(self, now=None):
+        """ "Good morning, Casey", by the hour in the store's time zone.
+
+        Uses the first name when there is one, else the username. ``now``
+        defaults to the current time; tests pass a fixed one.
+        """
+        hour = timezone.localtime(now).hour
+        if 5 <= hour < 12:
+            part = "morning"
+        elif 12 <= hour < 18:
+            part = "afternoon"
+        else:
+            part = "evening"
+        return f"Good {part}, {self.first_name or self.get_username()}"
+
+    @property
+    def email_verified(self):
+        """Whether the account has an email and its owner has confirmed it."""
+        return bool(self.email) and self.email_verified_at is not None
+
+    @property
     def password_last_changed(self):
         """When the password was last changed or reset, or ``None`` if never.
 
@@ -186,6 +230,12 @@ class User(AbstractUser):
             .values_list("created_at", flat=True)
             .first()
         )
+
+
+@receiver(post_delete, sender=User)
+def delete_avatar_file(sender, instance, **kwargs):
+    """A deleted account takes its profile picture with it (on commit)."""
+    delete_files_on_commit(instance.avatar.name)
 
 
 class SecurityEventQuerySet(models.QuerySet):

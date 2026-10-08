@@ -167,4 +167,6 @@ TAILWIND_CLI_SRC_CSS = "assets/css/source.css"
 
 # Email — console backend only; real mail is out of scope for the core.
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+# The project's console backend prints bodies decoded, so links printed
+# there can be copied (see ``config/mail.py``).
+EMAIL_BACKEND = "config.mail.ConsoleEmailBackend"

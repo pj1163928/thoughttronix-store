@@ -30,6 +30,134 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 8: email verification, plus a profile menu and profile pictures
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 8"
+2. "how can I test this in a browser"
+3. "Ok so few things that I noticed I tried using the verify link sent in
+   console but I keep on getting amessage stating that the link does not
+   work. Also I do not have a workaround in the admin panel for quicly
+   verifying emails without having to go through emails. Additionally
+   this is not part of this PRD but I would like to combine the Account
+   and the Greeting and include a customer profile image instead and have
+   a simple placeholder image if they do not upload one image profile
+   images should be 180 by 180 and allow users to change them by
+   uploading a picture, also in the profile menu it should show their
+   actual name as well and a personalized greeting"
+4. "Ok I would also like to change the layout of the topbar menu can you
+   make the gin out option in the profile icon dropdown menu and just have
+   simple larger icons that represent the orders wishlis and cart the
+   profile menu should be all the way to the right and the other icons for
+   the other menus should be to the left of it."
+5. "Append this conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 8 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The model.** `User.email_verified_at` (migration `0008`) and an
+    `email_verified` property.
+  - **The token.** `accounts/security.py` gained
+    `make_verification_token`, `user_for_verification_token`,
+    `send_verification_email` and `mark_email_verified`. The token is a
+    `signing.Signer` object carrying user id, email and issue time, with
+    no table. It is refused when tampered with, older than 24 hours, for
+    a deleted account, or for an email the account no longer has.
+  - **The pages.** Sign-up sends the link and the account works at once.
+    `accounts:verify_email` shows a Confirm button on GET and verifies
+    only on POST, without sign-in. `accounts:send_verification` is the
+    hub's POST-only "resend link". The Profile card shows a Verified
+    badge or "Email not verified — resend link".
+  - **The seed.** `admin` and `employee` are seeded verified, `customer`
+    unverified.
+
+  Prompt 2 changed no code. It produced a browser walkthrough: sign-up and
+  the console link, GET-changes-nothing, signed-out confirmation, resend,
+  tampered, changed-email and expired links (the last minted in `manage.py
+  shell` with a backdated `at=`), and the admin's event list.
+
+  Prompt 3 produced three changes:
+  - **The broken link (a real bug).** Django 6 builds mail with Python's
+    modern email API, which sends any body line over 78 characters as
+    quoted-printable. The console backend printed that raw, so the link
+    was soft-wrapped with `=` and couldn't be copied. `config/mail.py`
+    adds a console backend that prints with a 998-character line limit, so
+    bodies print as plain 8-bit text, and `EMAIL_BACKEND` points to it.
+    What a real backend would send is unchanged. A regression test reads
+    the link out of the console output and follows it.
+  - **The admin shortcut.** Phase 16's "Mark email verified" action and
+    phase 15's "Email verified" column were brought forward, with phase
+    16's rules: superusers only (an `override` action permission checking
+    `is_superuser`), skipping the acting admin and every superuser via a
+    new `security.overridable`, recorded with the admin as actor, and the
+    owner emailed. Email-less accounts are left alone.
+  - **The profile menu and pictures.** `User.avatar` (migration `0009`),
+    `display_name` and a time-of-day `greeting`. `products/images.py` gained
+    `validate_avatar`, `set_avatar`, `remove_avatar` and `avatar_picture`.
+    `validate_image`'s checks were pulled out into a shared `_checked` and
+    `_decoded`, with every product message kept word for word. Pictures
+    are center-cropped to one 180 × 180 WebP. A silhouette SVG is the
+    placeholder, and a `post_delete` receiver removes a deleted account's
+    file. Sign-up takes optional first and last names. A new Edit profile
+    page (`accounts:edit_profile`) changes the name and picture through
+    `ProfileForm`. The navbar's "Account" and "Hi, …" became one CSS-only
+    avatar dropdown.
+
+  Prompt 4 rearranged the navbar: Orders, Wishlist and Cart became larger
+  labelled SVG icons (the cart's lives in `_cart_badge.html`, so HTMX's
+  out-of-band swap keeps it), the profile menu moved to the far right,
+  and Sign out moved into it as a button submitting a hidden form by id.
+
+  Paperwork: two dated amendments in the PRD and the plan (the profile
+  menu and pictures; "mark email verified" brought forward), a Profile
+  pictures section in `docs/IMAGES.md`, and CLAUDE.md's images pointer
+  now mentions profile images. The suite went from 688 to 725 tests. Ruff
+  is clean, the CSS was rebuilt, and nothing was committed.
+
+- **Deviations:** For prompt 3, the agent asked four questions before
+  building the profile feature, and the user took the recommended answer
+  each time except for the placeholder, where no recommendation was given:
+  - **Name source:** optional first and last name at sign-up, editable on
+    an Edit profile page (recommended).
+  - **Greeting:** by time of day (recommended).
+  - **Placeholder:** a generic silhouette, not initials on a circle.
+  - **Paperwork:** a dated amendment to the existing PRD and plan
+    (recommended).
+
+  Defaults taken without asking and reported: the picture is
+  center-cropped (no manual crop); names and pictures need no
+  re-authentication and record no `SecurityEvent`; the "Email verified"
+  event stores the confirmed address in `details`; "Back office" stays a
+  text link in prompt 4. The greeting follows `TIME_ZONE = "UTC"`, so it
+  is three hours ahead of the user's UTC−3. Switching the zone was
+  offered, not done.
+
+- **Sideways:**
+  - **The console link bug shipped in prompt 1 and was caught only by
+    the user in a browser.** The tests read `mail.outbox`, which holds
+    messages before encoding, so they never saw what the console printed.
+    The new test goes through the real console output.
+  - **A token-age test failed on its first run.** Tokens store whole
+    seconds, so "exactly 24 hours" from a microsecond-precise `now` was a
+    fraction of a second late. The test now pins a whole-second clock,
+    and a token can expire up to a second early.
+  - **The agent's first draft of the console regression test was wrong.**
+    It monkeypatched `mail.get_connection` and then `del`eted it from the
+    module. It was rewritten with the `settings` and `capsys` fixtures
+    before it ever ran.
+  - **The agent accidentally ran `git stash -- config/settings.py`**,
+    reverting the backend setting. It noticed at once, ran `git stash
+    pop`, and checked that the user's staged plan file was untouched.
+  - **The plan was already damaged.** Before the session began, the
+    user's staged `plans/account-security.md` unticked phases 3–7,
+    dropped the phase 4 and 6 amendment sections, and garbled phase 18's
+    "What to build". The agent flagged it and didn't repair it. Phase 8's
+    boxes and the new amendments were added on top of that version.
+  - **The pages were not opened in a browser by the agent.** `seed`
+    wasn't run, and still needs to run before `db.sqlite3` is committed.
+
 ## 2026-10-07 — Account security, Phase 7: change username
 
 ### Prompts

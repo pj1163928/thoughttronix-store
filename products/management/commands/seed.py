@@ -565,6 +565,10 @@ MANAGED_USERNAMES = [username for username, *_ in DEMO_USERS] + [
     username for username, *_ in BACKGROUND_CUSTOMERS
 ]
 
+# Accounts whose email starts out confirmed. The ``customer`` login is
+# left unconfirmed so the Account page's "resend link" prompt can be demoed.
+VERIFIED_USERNAMES = ["admin", "employee"]
+
 # The customer demo login's live cart: (product slug, quantity).
 CUSTOMER_CART = [
     ("seraphine", 2),
@@ -799,6 +803,8 @@ class Command(BaseCommand):
         # audit log and the Account page's activity card aren't empty.
         for user in User.objects.filter(username__in=MANAGED_USERNAMES).order_by("pk"):
             security.record_event(SecurityEvent.Kind.SIGN_UP, user, actor=user)
+            if user.username in VERIFIED_USERNAMES:
+                security.mark_email_verified(user)
 
     def _create_discount_codes(self):
         """One of each shape the feature can take — see ``DISCOUNT_CODES``."""

@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block title %}Edit profile — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-sm">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Edit profile</h1>
+        <p class="text-sm opacity-70">
+          Your name and picture appear in your profile menu at the top of every page.
+        </p>
+
+        <div class="mt-2 flex justify-center">
+          <div class="avatar">
+            <div class="w-[180px] rounded-full">
+              {% include "products/partials/_picture.html" with pic=user.avatar_picture eager=True only %}
+            </div>
+          </div>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="mt-4 space-y-4">
+          {% csrf_token %}
+
+          {% for error in form.non_field_errors %}
+            <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+          {% endfor %}
+
+          {% include "orders/partials/_field.html" with field=form.first_name %}
+          {% include "orders/partials/_field.html" with field=form.last_name %}
+
+          <div>
+            <label class="label mb-1" for="{{ form.photo.id_for_label }}">{{ form.photo.label }}</label>
+            {{ form.photo }}
+            <div class="mt-1 text-xs opacity-60">{{ form.photo.help_text }}</div>
+            {% for error in form.photo.errors %}
+              <p class="mt-1 text-sm text-error">{{ error }}</p>
+            {% endfor %}
+          </div>
+
+          {% if form.remove_photo %}
+            <label class="label cursor-pointer justify-start gap-2" for="{{ form.remove_photo.id_for_label }}">
+              {{ form.remove_photo }}
+              <span>{{ form.remove_photo.label }}</span>
+            </label>
+          {% endif %}
+
+          <div class="flex justify-end gap-2">
+            <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary">Save profile</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

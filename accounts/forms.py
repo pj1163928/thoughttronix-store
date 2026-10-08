@@ -7,12 +7,15 @@ from django.contrib.auth.forms import (
 )
 from django.template.defaultfilters import pluralize
 
+from products import images
+from products.images import AVATAR_SIZE, MAX_FILE_MB, validate_avatar
+
 from . import security
 from .models import Address, User
 
 
 class SignupForm(UserCreationForm):
-    """Username, email, and password with confirmation.
+    """Username, an optional name, email, and password with confirmation.
 
     The email is required here, though not on the model: it is how a
     forgotten password is recovered, but accounts from before sign-up
@@ -21,13 +24,20 @@ class SignupForm(UserCreationForm):
     rules — no ``@``, no case-only twin — come from the model field and
     from ``UserCreationForm`` itself.
 
+    The name is optional; it greets the person in the navbar's profile
+    menu, which falls back to the username without one.
+
     The widgets carry DaisyUI classes because plain Django forms own
     their own styling here.
     """
 
     class Meta(UserCreationForm.Meta):
         model = User
-        fields = ("username", "email")
+        fields = ("username", "first_name", "last_name", "email")
+        labels = {
+            "first_name": "First name (optional)",
+            "last_name": "Last name (optional)",
+        }
         help_texts = {"email": "For password resets and account alerts."}
 
     def __init__(self, *args, **kwargs):
@@ -193,6 +203,56 @@ class SignOutDeviceForm(ReauthenticationForm):
     """Only the current password; the device comes from the URL."""
 
     purpose = "sign_out_device"
+
+
+class ProfileForm(forms.ModelForm):
+    """The name the store greets you by, and your profile picture.
+
+    Nothing here is a security setting, so no current password is asked
+    for. The picture is a plain ``FileField`` for the same reason the
+    product image form uses one: ``clean_photo`` hands it to
+    ``validate_avatar``, whose refusals say what was actually wrong, and a
+    valid upload arrives already cropped and scaled, ready for
+    ``images.set_avatar``. Choosing a new picture wins over "remove".
+    """
+
+    photo = forms.FileField(
+        label="New profile picture",
+        required=False,
+        help_text=(
+            f"JPEG, PNG or WebP · at least {AVATAR_SIZE} pixels on each side · "
+            f"up to {MAX_FILE_MB} MB. It's cropped to a square from the middle."
+        ),
+    )
+    remove_photo = forms.BooleanField(label="Remove my profile picture", required=False)
+
+    class Meta:
+        model = User
+        fields = ("first_name", "last_name")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.instance.avatar:
+            del self.fields["remove_photo"]
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "input w-full"
+        self.fields["photo"].widget.attrs.update(
+            {"class": "file-input w-full", "accept": "image/jpeg,image/png,image/webp"}
+        )
+        if "remove_photo" in self.fields:
+            self.fields["remove_photo"].widget.attrs["class"] = "checkbox"
+
+    def clean_photo(self):
+        upload = self.cleaned_data["photo"]
+        return validate_avatar(upload) if upload else None
+
+    def save(self):
+        user = super().save()
+        if self.cleaned_data["photo"]:
+            images.set_avatar(user, self.cleaned_data["photo"])
+        elif self.cleaned_data.get("remove_photo"):
+            images.remove_avatar(user)
+        return user
 
 
 class AddressForm(forms.ModelForm):

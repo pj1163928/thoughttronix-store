@@ -11,8 +11,8 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   [docs/DISCOUNTS.md](docs/DISCOUNTS.md)
 - changing `Address`, the address book, or checkout's address fields →
   [docs/ADDRESSES.md](docs/ADDRESSES.md)
-- touching product or order images, `products/images.py`, the Images
-  page, or media settings → [docs/IMAGES.md](docs/IMAGES.md)
+- touching product, order or profile images, `products/images.py`, the
+  Images page, or media settings → [docs/IMAGES.md](docs/IMAGES.md)
 - changing the wishlist, its product-page button, or anything that could
   expose one customer's wishlist to anyone else →
   [docs/WISHLIST.md](docs/WISHLIST.md)

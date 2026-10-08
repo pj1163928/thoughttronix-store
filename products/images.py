@@ -1,11 +1,12 @@
-"""Product images — the codebase's third deliberate deep module.
+"""Images — the codebase's third deliberate deep module.
 
 Everything that turns an uploaded file into a picture on a page lives
-here: the one validator every upload path shares, the resize-and-store
-pipeline, the extras' ordering, the order-line snapshot, and the
-exists-or-placeholder rule that keeps a missing file from ever reaching
-an ``<img>`` tag. Forms call ``validate_image``; views, ``place_order``
-and the seed call the rest. Nothing else writes or deletes image files.
+here: the one set of rules every upload path shares, the resize-and-store
+pipeline, the extras' ordering, the order-line snapshot, customers'
+profile pictures, and the exists-or-placeholder rule that keeps a missing
+file from ever reaching an ``<img>`` tag. Forms call ``validate_image``
+(or ``validate_avatar``); views, ``place_order`` and the seed call the
+rest. Nothing else writes or deletes image files.
 
 The pipeline's order is the design:
 
@@ -36,7 +37,7 @@ import os
 import re
 import uuid
 import warnings
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import partial
@@ -52,6 +53,7 @@ from django.utils import timezone
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 if TYPE_CHECKING:
+    from django.contrib.auth.base_user import AbstractBaseUser
     from django.db.models.fields.files import FieldFile
 
     from orders.models import Order
@@ -73,6 +75,11 @@ THUMBNAIL_WIDTH = 600
 WEBP_QUALITY = 82
 PRODUCT_FOLDER = "products"
 ORDER_FOLDER = "orders"
+
+# Profile pictures: one square WebP, this many pixels on each side.
+AVATAR_SIZE = 180
+AVATAR_FOLDER = "avatars"
+AVATAR_PLACEHOLDER = "images/placeholders/avatar.svg"
 
 # Every placeholder SVG in assets/images/placeholders/ is drawn at 4:3.
 PLACEHOLDER_SIZE = (400, 300)
@@ -192,6 +199,36 @@ def validate_image(upload: BinaryIO) -> PreparedImage:
     names the file and the actual values found. Returns the display and
     thumbnail WebPs, ready for storage.
     """
+    image, label, kind = _checked(
+        upload, min_side=MIN_SIDE, shown="on the product page", subject="the product"
+    )
+    return _decoded(image, label, kind, _prepare)
+
+
+def validate_avatar(upload: BinaryIO) -> bytes:
+    """Check a profile picture against the same rules, then make it square.
+
+    Every rule ``validate_image`` applies applies here too, except that
+    the smallest side need only be ``AVATAR_SIZE`` pixels. A picture that
+    passes is cropped to its centre square, scaled to ``AVATAR_SIZE`` ×
+    ``AVATAR_SIZE`` and encoded as one WebP, ready for ``set_avatar``.
+    Raises ``ValidationError`` exactly as ``validate_image`` does.
+    """
+    image, label, kind = _checked(
+        upload, min_side=AVATAR_SIZE, shown="as a profile picture", subject="your face"
+    )
+    return _decoded(image, label, kind, _prepare_avatar)
+
+
+def _checked(
+    upload: BinaryIO, *, min_side: int, shown: str, subject: str
+) -> tuple[Image.Image, str, str]:
+    """Every rule but a clean decode; returns the opened image, its label and kind.
+
+    ``shown`` and ``subject`` finish the too-small and bad-shape messages
+    ("…or they look blurry *on the product page*", "Crop it closer to
+    *the product*").
+    """
     label = _label(upload)
 
     size = _size_in_bytes(upload)
@@ -217,18 +254,18 @@ def validate_image(upload: BinaryIO) -> PreparedImage:
             "4000 pixels on the long side and try again.",
             code="too_many_pixels",
         )
-    if min(width, height) < MIN_SIDE:
+    if min(width, height) < min_side:
         raise ValidationError(
             f"{label} is {width} × {height} pixels. Images must be at least "
-            f"{MIN_SIDE} pixels on each side, or they look blurry on the "
-            "product page — use a larger version of the photo.",
+            f"{min_side} pixels on each side, or they look blurry {shown} — "
+            "use a larger version of the photo.",
             code="too_small",
         )
     if max(width, height) > MAX_ASPECT * min(width, height):
         shape = "wide as it is tall" if width > height else "tall as it is wide"
         raise ValidationError(
             f"{label} is {width} × {height} pixels — more than {MAX_ASPECT} "
-            f"times as {shape}. Crop it closer to the product and try again.",
+            f"times as {shape}. Crop it closer to {subject} and try again.",
             code="bad_aspect",
         )
     frames = getattr(image, "n_frames", 1)
@@ -238,10 +275,16 @@ def validate_image(upload: BinaryIO) -> PreparedImage:
             "images can be used — save a single frame and try again.",
             code="animated",
         )
+    return image, label, kind
 
+
+def _decoded[T](
+    image: Image.Image, label: str, kind: str, prepare: Callable[[Image.Image], T]
+) -> T:
+    """Decode the whole image and ``prepare`` it; a bad decode is a refusal."""
     try:
         image.load()
-        return _prepare(image)
+        return prepare(image)
     except Exception as error:
         raise ValidationError(
             f"{label} looks like a {kind} file, but it is damaged or incomplete "
@@ -337,13 +380,19 @@ def _wrong_type(upload: BinaryIO, label: str) -> str:
     )
 
 
-def _prepare(image: Image.Image) -> PreparedImage:
-    """Rotate upright, normalise the colours, and encode both WebPs."""
+def _upright(image: Image.Image) -> Image.Image:
+    """Apply the EXIF rotation, and normalise to RGB, or RGBA if transparent."""
     image = ImageOps.exif_transpose(image)
     has_alpha = image.mode in {"RGBA", "LA", "PA"} or (
         image.mode == "P" and "transparency" in image.info
     )
     image = image.convert("RGBA" if has_alpha else "RGB")
+    return image
+
+
+def _prepare(image: Image.Image) -> PreparedImage:
+    """Rotate upright, normalise the colours, and encode both WebPs."""
+    image = _upright(image)
 
     display = image.copy()
     display.thumbnail(
@@ -361,6 +410,14 @@ def _prepare(image: Image.Image) -> PreparedImage:
         width=display.width,
         height=display.height,
     )
+
+
+def _prepare_avatar(image: Image.Image) -> bytes:
+    """Rotate upright, crop to the centre square and scale to ``AVATAR_SIZE``."""
+    square = ImageOps.fit(
+        _upright(image), (AVATAR_SIZE, AVATAR_SIZE), Image.Resampling.LANCZOS
+    )
+    return _webp(square)
 
 
 def _webp(image: Image.Image) -> bytes:
@@ -475,6 +532,63 @@ def _forget_pictures(product: Product) -> None:
     """Drop the instance's cached ``Picture``s so they reflect the new image."""
     for name in ("card_image", "display_image", "extra_pictures"):
         product.__dict__.pop(name, None)
+
+
+# --- Profile pictures ------------------------------------------------------------
+#
+# One square file per account, on ``User.avatar``. The same pipeline as a
+# product's main image, in miniature: write the new file, save the row,
+# delete the old file once the save commits.
+
+
+def set_avatar(user: AbstractBaseUser, avatar: bytes) -> None:
+    """Make ``avatar`` (from ``validate_avatar``) the user's profile picture.
+
+    Replaces any picture they had. If writing or saving fails, the new
+    file is removed, ``user`` is put back as it was, and the exception
+    propagates; the old picture is untouched.
+    """
+    old = user.avatar.name
+    name = default_storage.save(
+        f"{AVATAR_FOLDER}/{uuid.uuid4().hex}.webp", ContentFile(avatar)
+    )
+    try:
+        with transaction.atomic():
+            user.avatar = name
+            user.save(update_fields=["avatar"])
+    except Exception:
+        user.avatar = old
+        _delete_now([name])
+        raise
+    delete_files_on_commit(old)
+
+
+def remove_avatar(user: AbstractBaseUser) -> bool:
+    """Clear the user's profile picture; they're shown the placeholder.
+
+    Returns ``False`` if there was nothing to remove.
+    """
+    old = user.avatar.name
+    if not old:
+        return False
+    user.avatar = ""
+    user.save(update_fields=["avatar"])
+    delete_files_on_commit(old)
+    return True
+
+
+def avatar_picture(user: AbstractBaseUser, alt: str) -> Picture:
+    """The user's profile picture if it is in storage, else the silhouette."""
+    url = stored_url(user.avatar)
+    if url is None:
+        return Picture(
+            static(AVATAR_PLACEHOLDER),
+            AVATAR_SIZE,
+            AVATAR_SIZE,
+            alt,
+            is_placeholder=True,
+        )
+    return Picture(url, AVATAR_SIZE, AVATAR_SIZE, alt)
 
 
 # --- Extras --------------------------------------------------------------------------

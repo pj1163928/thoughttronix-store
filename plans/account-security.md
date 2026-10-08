@@ -157,12 +157,12 @@ sign-in field is relabelled "Username or email".
 
 ### Acceptance criteria
 
-- [x] A user can sign in with their username or their email, in any
+- [ ] A user can sign in with their username or their email, in any
       capitalisation.
-- [x] An inactive (locked) user is refused with the same message as a
+- [ ] An inactive (locked) user is refused with the same message as a
       wrong password.
-- [x] Staff and superuser permission checks behave exactly as before.
-- [x] The sign-in page labels the field "Username or email".
+- [ ] Staff and superuser permission checks behave exactly as before.
+- [ ] The sign-in page labels the field "Username or email".
 
 ---
 
@@ -183,37 +183,17 @@ no user and no identifier, only the IP. No failure ever sends mail.
 
 ### Acceptance criteria
 
-- [x] After five wrong passwords in 15 minutes, the correct password is
+- [ ] After five wrong passwords in 15 minutes, the correct password is
       refused.
-- [x] The cooldown ends on its own once the oldest failure is more than
+- [ ] The cooldown ends on its own once the oldest failure is more than
       15 minutes old (tested with a fixed clock).
-- [x] Attempts made during a cooldown don't extend it.
-- [x] A successful sign-in resets the count.
-- [x] Wrong password, unknown account and cooldown produce byte-identical
+- [ ] Attempts made during a cooldown don't extend it.
+- [ ] A successful sign-in resets the count.
+- [ ] Wrong password, unknown account and cooldown produce byte-identical
       messages.
-- [x] An unknown-identifier failure is stored with null user, no
+- [ ] An unknown-identifier failure is stored with null user, no
       identifier anywhere in the row, and the IP.
-- [x] No email is sent for any failed sign-in.
-
-### Amended 2026-10-07: escalating pauses
-
-Per the PRD's amendment of the same date: pauses escalate 15 → 30 → 60
-minutes, the sign-in page shows a per-browser attempts-left line, and the
-owner gets one email when a pause starts. This replaces two criteria
-above: a pause now runs for a fixed time from the failure that started
-it, and a failed sign-in that starts a pause now sends one email. The
-alert-email helper that phase 6 was to build exists now
-(`security.send_alert`); phase 6 reuses it.
-
-- [x] After a pause ends, one failure starts the next, doubling to an
-      hour and staying there.
-- [x] The ladder restarts after a successful sign-in, a cleared cooldown,
-      or 24 hours without a pause.
-- [x] Starting a pause records a "sign-in paused" event with its length,
-      and emails the owner once. Email-less accounts are skipped.
-- [x] The page's attempts-left and paused lines read identically for a
-      real account and an unknown username, and never store what was
-      typed.
+- [ ] No email is sent for any failed sign-in.
 
 ---
 
@@ -235,16 +215,16 @@ see a banner asking them to add one. The navbar's "Addresses" link becomes
 
 ### Acceptance criteria
 
-- [x] Anonymous visitors are redirected to sign in.
-- [x] The navbar shows "Account" linking to `accounts:account` and no
+- [ ] Anonymous visitors are redirected to sign in.
+- [ ] The navbar shows "Account" linking to `accounts:account` and no
       longer shows "Addresses".
-- [x] The activity card shows only the signed-in user's events, newest
+- [ ] The activity card shows only the signed-in user's events, newest
       first, capped at 10.
-- [x] An event whose actor is an admin reads "by ThoughtTronix support"
+- [ ] An event whose actor is an admin reads "by ThoughtTronix support"
       and never contains the admin's username.
-- [x] The Password card reads "Never changed" when no qualifying event
+- [ ] The Password card reads "Never changed" when no qualifying event
       exists.
-- [x] An account with a blank email sees the add-email banner.
+- [ ] An account with a blank email sees the add-email banner.
 
 ---
 
@@ -257,44 +237,24 @@ see a banner asking them to add one. The navbar's "Addresses" link becomes
 This phase builds three shared pieces that later phases reuse. The
 session key field on `User` is mixed into the session auth hash. The
 "Current password" re-authentication field is wired into the cooldown, so
-wrong answers count toward it. The alert-email helper (already built as
-`security.send_alert` by phase 4's amendment) says what happened and
-when, ends "Wasn't you? Contact support." and skips email-less accounts. Using them, the change-password page keeps this session signed
+wrong answers count toward it. The alert-email helper says what happened
+and when, ends "Wasn't you? Contact support." and skips email-less
+accounts. Using them, the change-password page keeps this session signed
 in, signs out every other session, records the event and sends an alert.
 The "Sign out of all other devices" button on the hub takes the current
 password, rotates the session key and records its event.
 
 ### Acceptance criteria
 
-- [x] Changing the password requires the current password, keeps the
+- [ ] Changing the password requires the current password, keeps the
       current session signed in and invalidates a second session.
-- [x] "Sign out of all other devices" invalidates a second session
+- [ ] "Sign out of all other devices" invalidates a second session
       without changing the password, and records its event.
-- [x] A wrong current password on either form counts toward the sign-in
+- [ ] A wrong current password on either form counts toward the sign-in
       cooldown.
-- [x] A password change sends one alert email with the required wording.
+- [ ] A password change sends one alert email with the required wording.
       An account with no email gets none and no error.
-- [x] The hub's Password card shows the new "last changed" time.
-
-### Amended 2026-10-07: the device list
-
-Per the PRD's amendment of the same date: the hub's Devices card lists
-every signed-in browser (name from the user agent, IP, signed in, last
-active, "This device" marked), and any other one can be signed out on its
-own through a confirm page that takes the current password. A
-`UserSession` row per browser, checked by middleware on each request, is
-the mechanism; Django's session key is never stored.
-
-- [x] Each browser signed in to the account is listed once, with its
-      name, IP, sign-in time and last-active time, and this one marked.
-- [x] Signing out one device ends that session alone, records a "Signed
-      out a device" event naming it, and tells that browser why.
-- [x] The confirm page changes nothing on GET, takes the current
-      password, and counts a wrong one toward the cooldown.
-- [x] This device, and another account's devices, can't be signed out
-      from the list.
-- [x] Sign out of all others, a password change and signing out each
-      clear the rows they end, and idle rows expire with their session.
+- [ ] The hub's Password card shows the new "last changed" time.
 
 ---
 
@@ -311,12 +271,12 @@ sends an alert.
 
 ### Acceptance criteria
 
-- [x] A valid rename takes effect immediately, and the user stays signed
+- [ ] A valid rename takes effect immediately, and the user stays signed
       in.
-- [x] Renames that collide case-insensitively or contain `@` are refused.
-- [x] A wrong current password refuses the change and counts toward the
+- [ ] Renames that collide case-insensitively or contain `@` are refused.
+- [ ] A wrong current password refuses the change and counts toward the
       cooldown.
-- [x] The event's `details` hold the old and new usernames, and an alert
+- [ ] The event's `details` hold the old and new usernames, and an alert
       is sent.
 
 ---
@@ -338,14 +298,14 @@ unverified.
 
 ### Acceptance criteria
 
-- [ ] Sign-up prints a verification email to the console, and the new
+- [x] Sign-up prints a verification email to the console, and the new
       user can sign in immediately.
-- [ ] GET on a verification link changes nothing. POST verifies.
-- [ ] A link older than 24 hours, or for an email the account no longer
+- [x] GET on a verification link changes nothing. POST verifies.
+- [x] A link older than 24 hours, or for an email the account no longer
       has, is refused.
-- [ ] The hub shows the resend prompt only for unverified emails, and the
+- [x] The hub shows the resend prompt only for unverified emails, and the
       verified badge otherwise.
-- [ ] After `seed`, `customer` is unverified and `admin`/`employee` are
+- [x] After `seed`, `customer` is unverified and `admin`/`employee` are
       verified.
 
 ---
@@ -605,13 +565,7 @@ form refuses.
 ### What to build
 
 `manage.py reset_2fa <username>` deletes the device and recovery codes on
-any account, superusers included, and logs a 2FA-reset event with no
-actor. `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` and
-`SESSION_COOKIE_AGE` are read from `.env` with development defaults and
-listed in `.env.example`. Documentation is brought in line: CLAUDE.md
-(four deep modules, a "Read before…" pointer to a new `docs/ACCOUNTS.md`),
-the README (demo `admin` needs 2FA setup after each `seed`), and a dated
-amendment to `prd/core-platform.md` pointing to the new PRD. Finally,
+any accout to the new PRD. Finally,
 `seed` is run before `db.sqlite3` is committed.
 
 ### Acceptance criteria
@@ -624,3 +578,36 @@ amendment to `prd/core-platform.md` pointing to the new PRD. Finally,
 - [ ] The core PRD carries a dated amendment rather than a rewrite.
 - [ ] `uv run pytest` is green and `uv run ruff check .` is clean.
 - [ ] The committed `db.sqlite3` contains no two-factor devices.
+
+---
+
+## Amended 2026-10-07: the profile menu and profile pictures
+
+Per the PRD's amendment of the same date. Built alongside phase 8.
+
+- [x] The navbar shows a profile menu (picture, time-of-day greeting,
+      name, Account and Edit profile links, Sign out) in place of
+      "Account", "Hi, …" and the separate Sign out button. Visitors don't
+      see it.
+- [x] Orders, Wishlist and Cart are labelled icons to the left of the
+      profile menu, which sits at the far right.
+- [x] Sign-up takes an optional first and last name, and Edit profile
+      changes them.
+- [x] An uploaded picture is validated by `products/images.py`, stored as
+      one 180 × 180 WebP, and can be replaced or removed; a replaced,
+      removed or deleted account's file is deleted on commit.
+- [x] Without a picture, or with its file missing, the silhouette
+      placeholder is shown.
+
+## Amended 2026-10-07: "mark email verified" brought forward
+
+Per the PRD's amendment of the same date, phase 16's "mark email
+verified" action and phase 15's "Email verified" column are built during
+phase 8. Phases 15 and 16 build the rest around them.
+
+- [x] A superuser can mark selected users' emails verified; it records an
+      email-verified event with the admin as actor and emails the owner.
+- [x] It skips the acting admin and other superusers, with a warning
+      naming them, and leaves email-less accounts alone.
+- [x] Staff who aren't superusers can't run it, even with user change
+      permission.

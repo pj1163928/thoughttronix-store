@@ -515,3 +515,47 @@ the PRD stands.
   session without a row.
 - **Not stored:** nothing beyond what the list shows. The user agent is
   kept only to name the device.
+
+---
+
+## Amendment — the profile menu and profile pictures (2026-10-07)
+
+Made after phase 8 was built, at the user's request, once they had used
+the navbar in a browser. The navbar's separate "Account" link and "Hi,
+username" greeting become one profile menu, and accounts gain a name and
+a picture to fill it. Story 18 is extended; the rest of the PRD stands.
+
+- **The profile menu (extends story 18).** Signed-in users see their
+  profile picture in the navbar in place of "Account" and "Hi, …".
+  Opening it shows the picture, a greeting by time of day in the store's
+  time zone ("Good evening, Casey", from the first name, or the username
+  without one), their full name (or username), and links to the Account
+  page and a new Edit profile page, then "Sign out". The menu is
+  CSS-only: no JavaScript and nothing added to the HTMX inventory.
+- **The navbar's layout.** The profile menu sits at the far right. Orders,
+  Wishlist and Cart become larger icons to its left, each labelled for
+  screen readers and titled for a hover hint, with the cart keeping its
+  count badge. Staff still see a "Back office" text link before them.
+- **A name.** Sign-up gains optional first- and last-name fields. The
+  Edit profile page changes them at any time. A name is not a security
+  setting, so it needs no re-authentication and records no
+  `SecurityEvent`.
+- **A profile picture.** Uploaded on the Edit profile page, held to the
+  same rules as product photos except that the smallest side need only be
+  180 pixels, then cropped to its centre square and stored as one 180 ×
+  180 WebP. It can be replaced or removed. Without one, a neutral
+  silhouette placeholder is shown. The picture goes through
+  `products/images.py` like every other image, follows its "never load a
+  missing file" rule, and is deleted with the account.
+- **Not included:** cropping by hand, pictures of other people in the
+  admin, Gravatar, or any way for other customers to see a picture.
+
+## Amendment — "mark email verified" brought forward (2026-10-07)
+
+Made during phase 8, at the user's request, so that demos needn't depend
+on reading console mail. Phase 16's **mark email verified** admin action
+is built now, exactly as story 44 and the admin-oversight rules describe:
+superusers only, skipping the acting admin and every superuser with a
+warning naming them, recorded with the admin as actor, and the owner
+emailed. The user list gains its "Email verified" column (story 41) with
+it. The other five overrides stay in phase 16.
