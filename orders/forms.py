@@ -16,6 +16,7 @@ own sentence for the customer. That is what ``clean_*`` is for.
 from django import forms
 from django.core.validators import RegexValidator
 
+from accounts.forms import AuthenticatorCodeMixin
 from accounts.models import US_STATES
 from accounts.validators import zip_validator
 from products.forms import StyledModelForm
@@ -96,6 +97,25 @@ class CheckoutForm(forms.Form):
 
     def card_fields(self):
         return [self[name] for name in self.fields if name.startswith("card_")]
+
+
+class CustomerCheckoutForm(AuthenticatorCodeMixin, CheckoutForm):
+    """Checkout for a signed-in customer: ``CheckoutForm``, plus a code if asked.
+
+    A customer with two-factor on who has asked to be asked at checkout
+    gets an "Authenticator code" field, checked after every other field
+    is valid and before ``place_order`` runs. Everyone else sees exactly
+    ``CheckoutForm``. The check is ``accounts.security``'s.
+    """
+
+    code_occasion = "checkout"
+    purpose = "checkout"
+
+    def __init__(self, *args, user, request=None, **kwargs):
+        self.user = user
+        self.request = request
+        super().__init__(*args, **kwargs)
+        self.add_code_field()
 
 
 class ApplyDiscountForm(forms.Form):

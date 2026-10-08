@@ -559,3 +559,38 @@ superusers only, skipping the acting admin and every superuser with a
 warning naming them, recorded with the admin as actor, and the owner
 emailed. The user list gains its "Email verified" column (story 41) with
 it. The other five overrides stay in phase 16.
+
+## Amendment — asking for a code beyond sign-in (2026-10-07)
+
+Made after phase 11 was built, at the user's request: users with
+two-factor on choose, from their Account page, to be asked for a code at
+more moments than sign-in. Sign-in itself is unchanged: two-factor on
+still means a code at every sign-in (story 11), with no way to switch
+that off. The rest of the PRD stands.
+
+- **Two choices, both off by default.** "When I place an order" and
+  "With my password, for security changes". They are kept on the
+  two-factor device, so removing two-factor (turning it off, or an admin
+  reset) removes them with it, and an account without two-factor is
+  never asked.
+- **The settings page** (`/accounts/2fa/settings/`,
+  `accounts:two_factor_settings`) is linked from the Two-factor card,
+  which shows the current choices. Saving always takes the current
+  password **and** a code, whatever is chosen, because it can switch a
+  protection off. A change records a new event type, "Two-factor
+  settings changed" (`2fa_settings_changed`), with the choices in
+  `details`, and emails the owner which moments now ask for a code.
+- **Security changes (extends stories 24–25).** With the choice on,
+  every form that asks for the current password (change password,
+  username and email, sign out other devices, sign out one device, and
+  the phase 13 forms) also asks for an "Authenticator code", and both
+  must match. Without it, phase 13's "Current password or authenticator
+  code" stands.
+- **Checkout.** With the choice on, the checkout page has an
+  "Authenticator code" field, checked before the order is placed. A
+  wrong code places nothing.
+- **How codes are checked here.** As in phase 13's re-authentication:
+  authenticator codes only, never recovery codes. Each code works once.
+  A wrong code counts toward the sign-in cooldown, and while the account
+  is paused no code is checked. The code is checked last, only when the
+  rest of the form is valid, so a typo elsewhere doesn't spend it.

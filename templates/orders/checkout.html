@@ -97,6 +97,21 @@
         </div>
       </section>
 
+      {% if "two_factor_code" in form.fields %}
+        <section class="card bg-base-100 shadow-md">
+          <div class="card-body">
+            <h2 class="card-title">Confirm it's you</h2>
+            <p class="text-sm opacity-70">
+              You've asked for a code from your authenticator app before an
+              order goes through.
+            </p>
+            <div class="max-w-xs">
+              {% include "orders/partials/_field.html" with field=form.two_factor_code %}
+            </div>
+          </div>
+        </section>
+      {% endif %}
+
       <button type="submit" class="btn btn-primary w-full">
         Place order — ${{ cart.total|intcomma }}
       </button>

@@ -86,7 +86,76 @@ class SignInForm(AuthenticationForm):
             field.widget.attrs["class"] = "input w-full"
 
 
-class ReauthenticationForm(forms.Form):
+def _refusal(user, message, code):
+    """Why a password or code was refused: paused, or simply wrong.
+
+    Only for a signed-in user asking about their own account, who may be
+    told it is paused; the sign-in page never says so.
+    """
+    standing = security.sign_in_standing(user)
+    if standing.paused_until:
+        minutes = standing.paused_minutes
+        return forms.ValidationError(
+            f"Too many failed attempts. Try again in {minutes} "
+            f"minute{pluralize(minutes)}.",
+            code="paused",
+        )
+    return forms.ValidationError(message, code=code)
+
+
+class AuthenticatorCodeMixin:
+    """Adds a code from the authenticator app, when the account asks for one.
+
+    The form sets ``self.user`` and ``self.request``, a ``code_occasion``
+    (see ``security.code_required``) and a ``purpose`` for the audit log,
+    then calls ``add_code_field``. ``asks_for_code`` decides whether the
+    field appears; a form that always wants one overrides it.
+
+    The code is checked last, in ``clean``, and only when everything else
+    is valid. A code works once, so spending it on a form that is about to
+    come back with a typo in it would leave the user waiting for the next
+    one. A wrong code counts toward the cooldown, through
+    ``security.confirm_code``.
+    """
+
+    code_occasion = None
+    purpose = ""
+
+    def asks_for_code(self):
+        return security.code_required(self.user, self.code_occasion)
+
+    def add_code_field(self):
+        if self.asks_for_code():
+            self.fields["two_factor_code"] = forms.CharField(
+                label="Authenticator code",
+                max_length=10,
+                help_text="The six-digit code your authenticator app shows now.",
+                widget=forms.TextInput(
+                    attrs={
+                        "autocomplete": "one-time-code",
+                        "inputmode": "numeric",
+                        "class": "input w-full font-mono",
+                    }
+                ),
+            )
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if "two_factor_code" in self.fields and not self.errors:
+            if not security.confirm_code(
+                self.user,
+                cleaned_data["two_factor_code"],
+                purpose=self.purpose,
+                request=self.request,
+            ):
+                self.add_error(
+                    "two_factor_code",
+                    _refusal(self.user, "That code didn't work.", "wrong_code"),
+                )
+        return cleaned_data
+
+
+class ReauthenticationForm(AuthenticatorCodeMixin, forms.Form):
     """The "prove it's you" field every sensitive change starts with.
 
     Subclasses add the change itself and set ``purpose``, a short label
@@ -95,9 +164,13 @@ class ReauthenticationForm(forms.Form):
     sign-in cooldown, and while the account is paused nothing is checked.
     The user is signed in and asking about their own account, so unlike
     the sign-in page this form may say that it is paused.
+
+    A two-factor user who has asked for a code on security changes gets
+    an "Authenticator code" field beside the password, and both must
+    match (see ``AuthenticatorCodeMixin``).
     """
 
-    purpose = ""
+    code_occasion = "security_changes"
 
     current_password = forms.CharField(
         label="Current password",
@@ -110,7 +183,16 @@ class ReauthenticationForm(forms.Form):
         self.request = request
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
-            field.widget.attrs["class"] = "input w-full"
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs["class"] = "checkbox checkbox-primary"
+            else:
+                field.widget.attrs["class"] = "input w-full"
+        self.add_code_field()
+        # Proof first, then the change, whatever order the fields were
+        # declared in; a ``field_order`` still goes ahead of both.
+        self.order_fields(
+            [*(self.field_order or []), "current_password", "two_factor_code"]
+        )
 
     def clean_current_password(self):
         password = self.cleaned_data["current_password"]
@@ -118,17 +200,7 @@ class ReauthenticationForm(forms.Form):
             self.user, password, purpose=self.purpose, request=self.request
         ):
             return password
-        standing = security.sign_in_standing(self.user)
-        if standing.paused_until:
-            minutes = standing.paused_minutes
-            raise forms.ValidationError(
-                f"Too many failed attempts. Try again in {minutes} "
-                f"minute{pluralize(minutes)}.",
-                code="paused",
-            )
-        raise forms.ValidationError(
-            "That isn't your current password.", code="wrong_password"
-        )
+        raise _refusal(self.user, "That isn't your current password.", "wrong_password")
 
 
 class PasswordChangeForm(SetPasswordMixin, ReauthenticationForm):
@@ -277,6 +349,73 @@ class SignOutDeviceForm(ReauthenticationForm):
     """Only the current password; the device comes from the URL."""
 
     purpose = "sign_out_device"
+
+
+class TwoFactorSetupForm(forms.Form):
+    """A code from the authenticator app, proving setup worked.
+
+    No current password: a working code proves the person has the phone,
+    and a superuser sent here straight after signing in shouldn't be asked
+    for it again. A wrong code here isn't counted toward the cooldown
+    either, since the secret is on the page beside it and there is nothing
+    to guess.
+    """
+
+    code = forms.CharField(
+        label="Code from your app",
+        max_length=10,
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "one-time-code",
+                "inputmode": "numeric",
+                "placeholder": "123456",
+            }
+        ),
+    )
+
+    def __init__(self, device, *args, **kwargs):
+        self.device = device
+        super().__init__(*args, **kwargs)
+        self.fields["code"].widget.attrs["class"] = "input w-full font-mono"
+
+    def clean_code(self):
+        code = self.cleaned_data["code"]
+        if not security.verify_code(self.device, code):
+            raise forms.ValidationError(
+                "That code didn't work. Enter the newest six-digit code your "
+                "app shows, and check your phone's clock is set automatically.",
+                code="wrong_code",
+            )
+        return code
+
+
+class TwoFactorSettingsForm(ReauthenticationForm):
+    """When to be asked for a code, besides signing in.
+
+    A security setting like any other, and one that can switch a
+    protection off, so it always takes both the current password and a
+    code, whatever the account has chosen.
+    """
+
+    purpose = "two_factor_settings"
+    field_order = ["ask_at_checkout", "ask_for_security_changes"]
+
+    ask_at_checkout = forms.BooleanField(
+        label="When I place an order",
+        required=False,
+        help_text="The checkout page asks for a code before the order goes through.",
+    )
+    ask_for_security_changes = forms.BooleanField(
+        label="With my password, for security changes",
+        required=False,
+        help_text=(
+            "Changing your password, username or email, and signing out "
+            "other devices, take your password and a code."
+        ),
+    )
+
+    def asks_for_code(self):
+        return True
 
 
 class ProfileForm(forms.ModelForm):

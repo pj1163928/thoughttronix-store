@@ -11,8 +11,11 @@ the alert email, "prove it's you": the current-password check that
 guards every sensitive change, with the password change, the username
 change and "sign out of all other devices" it guards, the list of
 signed-in devices that lets one be signed out at a time, the signed
-links that verify an email address, those that confirm a new one, and
-the record of a forgotten password being reset.
+links that verify an email address, those that confirm a new one, the
+record of a forgotten password being reset, and two-factor setup: the
+authenticator secret and its QR code, checking codes, recovery codes,
+and the owner's choice to be asked for a code at checkout and on
+security changes.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -23,23 +26,29 @@ security-relevant thing that happens to an account must pass through
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
 import math
+import secrets
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+import pyotp
+import segno
 from django.contrib.auth import logout, update_session_auth_hash
 from django.core import signing
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
-from .models import SecurityEvent, User, UserSession
+from .models import RecoveryCode, SecurityEvent, TwoFactorDevice, User, UserSession
 
 if TYPE_CHECKING:
     from django.contrib.sessions.backends.base import SessionBase
@@ -918,6 +927,297 @@ def overridable(admin: User, users: Iterable[User]) -> tuple[list[User], list[Us
 
 def _hours(duration: timedelta) -> int:
     return int(duration / timedelta(hours=1))
+
+
+# --- Two-factor authentication ----------------------------------------------------
+#
+# Standard TOTP (RFC 6238): six digits from a shared secret and the
+# current 30-second time step, so any authenticator app works, offline.
+# A code from one step either side of now is accepted, for a phone whose
+# clock is a little off, and no step is accepted twice, so a code someone
+# watched being typed can't be replayed.
+#
+# Setup is two-stage. Opening the setup page makes a device with a fresh
+# secret, unconfirmed; only a working code from the app confirms it and
+# turns two-factor on. Until then the account is exactly as it was.
+
+TOTP_ISSUER = "ThoughtTronix"
+TOTP_DRIFT_STEPS = 1
+RECOVERY_CODE_COUNT = 10
+# No 0/o, 1/l/i: a recovery code is read off paper and typed by hand.
+_RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+_RECOVERY_HALF = 5
+
+
+def pending_two_factor_device(user: User) -> TwoFactorDevice | None:
+    """The device ``user`` is setting up, made with a fresh secret if needed.
+
+    The same pending device, and so the same secret, comes back on every
+    visit until setup is confirmed, so reloading the setup page doesn't
+    undo a QR code already scanned. Returns ``None`` when two-factor is
+    already on: there is nothing to set up.
+    """
+    device, _ = TwoFactorDevice.objects.get_or_create(
+        user=user, defaults={"secret": pyotp.random_base32()}
+    )
+    return None if device.confirmed_at else device
+
+
+def provisioning_uri(device: TwoFactorDevice) -> str:
+    """The ``otpauth://`` URI an authenticator app reads from the QR code.
+
+    It names the store and the account's username, which is what the app
+    lists the entry as. It contains the secret, so it belongs on the
+    setup page and nowhere else.
+    """
+    return pyotp.TOTP(device.secret).provisioning_uri(
+        name=device.user.get_username(), issuer_name=TOTP_ISSUER
+    )
+
+
+def provisioning_qr_svg(device: TwoFactorDevice) -> str:
+    """The setup QR code as an inline ``<svg>``: dark modules on white.
+
+    Rendered on the server, so there is no image file and nothing in
+    media. The white quiet zone is part of the drawing, because scanners
+    need it and the store's theme is dark.
+    """
+    return segno.make(provisioning_uri(device), error="m").svg_inline(
+        scale=5,
+        border=4,
+        dark="#000",
+        light="#fff",
+        omitsize=True,
+        svgclass="h-auto w-full",
+        title="QR code for setting up two-factor authentication",
+    )
+
+
+def setup_key(device: TwoFactorDevice) -> str:
+    """The secret in groups of four, for typing into an app that can't scan.
+
+    Authenticator apps ignore the spaces.
+    """
+    return " ".join(device.secret[i : i + 4] for i in range(0, len(device.secret), 4))
+
+
+def verify_code(
+    device: TwoFactorDevice, code: str, *, at: datetime | None = None
+) -> bool:
+    """Whether ``code`` is a fresh authenticator code for ``device``.
+
+    Accepts the code for the time step at ``at`` (default now) and for
+    one step either side. A code from a step at or before the newest one
+    already accepted is refused, so each code works once. Accepting a
+    code records its step, atomically, so two requests racing with the
+    same code can't both succeed. Spaces are ignored; anything that isn't
+    six digits is refused without being checked.
+
+    This only answers the question. Counting a wrong code toward the
+    cooldown is the caller's decision.
+    """
+    code = "".join(code.split())
+    if len(code) != 6 or not code.isdigit():
+        return False
+    totp = pyotp.TOTP(device.secret)
+    now_step = totp.timecode(at or timezone.now())
+    matched = None
+    for step in range(now_step - TOTP_DRIFT_STEPS, now_step + TOTP_DRIFT_STEPS + 1):
+        # Every candidate is compared, so timing doesn't say which matched.
+        if hmac.compare_digest(totp.generate_otp(step), code):
+            matched = step
+    if matched is None:
+        return False
+    claimed = (
+        TwoFactorDevice.objects.filter(pk=device.pk)
+        .filter(Q(last_used_step__isnull=True) | Q(last_used_step__lt=matched))
+        .update(last_used_step=matched)
+    )
+    if claimed:
+        device.last_used_step = matched
+    return bool(claimed)
+
+
+def enable_two_factor(
+    device: TwoFactorDevice,
+    *,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> list[str]:
+    """Turn two-factor on for ``device``'s account, and return its recovery codes.
+
+    Call once a working code has been checked with ``verify_code``. The
+    device is confirmed, a fresh set of recovery codes replaces any old
+    one, the event is recorded and the owner is told. The codes are
+    returned in plain text for the caller to show once; only their hashes
+    are kept.
+    """
+    at = at or timezone.now()
+    user = device.user
+    with transaction.atomic():
+        device.confirmed_at = at
+        device.save(update_fields=["confirmed_at"])
+        codes = generate_recovery_codes(user)
+    record_event(Kind.TWO_FACTOR_ENABLED, user, actor=user, request=request, at=at)
+    send_alert(
+        user,
+        "Two-factor authentication was turned on",
+        (
+            "Two-factor authentication was turned on for your ThoughtTronix "
+            "account, using an authenticator app. Ten recovery codes were "
+            "created for signing in without it."
+        ),
+        at=at,
+    )
+    return codes
+
+
+def generate_recovery_codes(user: User) -> list[str]:
+    """Replace ``user``'s recovery codes with ten new ones, and return them.
+
+    Every old code stops working. Each new one looks like ``k7m2p-x9qtr``
+    (about 49 bits of randomness) and is stored only as a hash, so the
+    returned list is the only time the codes exist in plain text.
+    """
+    codes = [_new_recovery_code() for _ in range(RECOVERY_CODE_COUNT)]
+    with transaction.atomic():
+        user.recovery_codes.all().delete()
+        RecoveryCode.objects.bulk_create(
+            RecoveryCode(user=user, code_hash=_hash_recovery_code(code))
+            for code in codes
+        )
+    return codes
+
+
+# --- Asking for a code beyond sign-in -------------------------------------------
+#
+# Sign-in always asks a two-factor user for a code. Asking at other times
+# is the owner's choice, kept on their device: when placing an order, and
+# beside the current password on every security change. A code given as
+# proof is checked like any other, so it can't be replayed, and a wrong
+# one counts toward the same cooldown as a wrong password.
+
+CodeOccasion = Literal["checkout", "security_changes"]
+_OCCASION_FIELDS: dict[str, str] = {
+    "checkout": "ask_at_checkout",
+    "security_changes": "ask_for_security_changes",
+}
+
+
+def code_required(user: User, occasion: CodeOccasion) -> bool:
+    """Whether ``user`` has asked to give a code for ``occasion``.
+
+    ``"checkout"`` is placing an order; ``"security_changes"`` is every
+    form that asks for the current password. Always ``False`` without
+    two-factor on.
+    """
+    if not user.is_authenticated:
+        return False
+    return (
+        TwoFactorDevice.objects.confirmed()
+        .filter(user=user, **{_OCCASION_FIELDS[occasion]: True})
+        .exists()
+    )
+
+
+def confirm_code(
+    user: User,
+    code: str,
+    *,
+    purpose: str,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Whether ``code`` from ``user``'s authenticator app proves it's them.
+
+    The code counterpart of ``confirm_identity``. While the account is
+    paused, refuses without checking and without recording. Otherwise a
+    wrong code (or no two-factor at all) is recorded as a failed
+    two-factor code, with ``purpose`` in its details, and may start a
+    pause. Recovery codes aren't accepted: they are for signing in.
+    """
+    if is_cooling_down(user, now=at):
+        return False
+    device = TwoFactorDevice.objects.confirmed().filter(user=user).first()
+    if device is not None and verify_code(device, code, at=at):
+        return True
+    record_failure(
+        Kind.TWO_FACTOR_CODE_FAILED,
+        user,
+        request=request,
+        at=at,
+        details={"reauthentication": purpose},
+    )
+    return False
+
+
+def update_two_factor_settings(
+    user: User,
+    *,
+    ask_at_checkout: bool,
+    ask_for_security_changes: bool,
+    request: HttpRequest | None = None,
+) -> bool:
+    """Save when ``user`` wants to be asked for a code, and tell them.
+
+    Records the event, with the new choices in ``details``, and emails
+    the owner, since switching a choice off removes a protection. Choices
+    that match what is saved change nothing and record nothing. Returns
+    whether anything changed. ``user`` must have two-factor on.
+    """
+    device = TwoFactorDevice.objects.confirmed().get(user=user)
+    if (device.ask_at_checkout, device.ask_for_security_changes) == (
+        ask_at_checkout,
+        ask_for_security_changes,
+    ):
+        return False
+    device.ask_at_checkout = ask_at_checkout
+    device.ask_for_security_changes = ask_for_security_changes
+    device.save(update_fields=["ask_at_checkout", "ask_for_security_changes"])
+    record_event(
+        Kind.TWO_FACTOR_SETTINGS_CHANGED,
+        user,
+        actor=user,
+        request=request,
+        details={
+            "checkout": ask_at_checkout,
+            "security_changes": ask_for_security_changes,
+        },
+    )
+    occasions = ["when you sign in"]
+    if ask_at_checkout:
+        occasions.append("when you place an order")
+    if ask_for_security_changes:
+        occasions.append("with your password for security changes")
+    send_alert(
+        user,
+        "Your two-factor settings were changed",
+        (
+            "The two-factor settings for your ThoughtTronix account were "
+            f"changed. A code from your authenticator app is now asked for "
+            f"{_and_list(occasions)}."
+        ),
+    )
+    return True
+
+
+def _and_list(items: list[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _new_recovery_code() -> str:
+    chars = "".join(
+        secrets.choice(_RECOVERY_ALPHABET) for _ in range(2 * _RECOVERY_HALF)
+    )
+    return f"{chars[:_RECOVERY_HALF]}-{chars[_RECOVERY_HALF:]}"
+
+
+def _hash_recovery_code(code: str) -> str:
+    # Typed codes may come with or without the dash, in any case.
+    normalized = "".join(ch for ch in code.lower() if ch.isalnum())
+    return hashlib.sha256(normalized.encode()).hexdigest()
 
 
 # --- Alerts -------------------------------------------------------------------------

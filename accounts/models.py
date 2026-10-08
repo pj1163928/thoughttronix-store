@@ -219,6 +219,14 @@ class User(AbstractUser):
         return bool(self.email) and self.email_verified_at is not None
 
     @property
+    def two_factor_enabled(self):
+        """Whether two-factor is on: the account has a confirmed device.
+
+        A device whose setup was started but never confirmed doesn't count.
+        """
+        return TwoFactorDevice.objects.confirmed().filter(user=self).exists()
+
+    @property
     def password_last_changed(self):
         """When the password was last changed or reset, or ``None`` if never.
 
@@ -288,6 +296,10 @@ class SecurityEvent(models.Model):
         TWO_FACTOR_ENABLED = "2fa_enabled", "Two-factor turned on"
         TWO_FACTOR_DISABLED = "2fa_disabled", "Two-factor turned off"
         TWO_FACTOR_RESET = "2fa_reset", "Two-factor reset"
+        TWO_FACTOR_SETTINGS_CHANGED = (
+            "2fa_settings_changed",
+            "Two-factor settings changed",
+        )
         RECOVERY_CODES_REGENERATED = (
             "recovery_codes_regenerated",
             "Recovery codes regenerated",
@@ -351,6 +363,71 @@ class SecurityEvent(models.Model):
         command) isn't support acting, and reads as plain history.
         """
         return self.actor_id is not None and self.actor_id != self.user_id
+
+
+class TwoFactorDeviceQuerySet(models.QuerySet):
+    def confirmed(self):
+        """Devices whose setup was finished with a working code."""
+        return self.filter(confirmed_at__isnull=False)
+
+
+class TwoFactorDevice(models.Model):
+    """The authenticator app an account's two-factor codes come from.
+
+    One per account. It is created, unconfirmed, when the owner opens the
+    setup page, and two-factor is on only once a working code has
+    confirmed it, so a setup abandoned halfway can't lock anyone out.
+    Written only by ``accounts.security``.
+
+    The secret is stored plain (see the PRD's Further Notes): run ``seed``
+    before committing ``db.sqlite3``. ``last_used_step`` is the 30-second
+    time step of the newest code accepted, and no code from that step or
+    an earlier one is accepted again.
+
+    Sign-in always asks for a code. The two ``ask_*`` flags are the
+    owner's choice to be asked at other times too: when placing an order,
+    and, beside the current password, on every security change. They
+    live here so that removing the device removes them with it.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="two_factor_device",
+    )
+    secret = models.CharField(max_length=32)
+    created_at = models.DateTimeField(default=timezone.now)
+    # Null while setup is pending.
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    last_used_step = models.BigIntegerField(null=True, blank=True)
+    ask_at_checkout = models.BooleanField(default=False)
+    ask_for_security_changes = models.BooleanField(default=False)
+
+    objects = TwoFactorDeviceQuerySet.as_manager()
+
+    def __str__(self):
+        state = "on" if self.confirmed_at else "pending"
+        return f"Two-factor ({state}) — {self.user}"
+
+
+class RecoveryCode(models.Model):
+    """One single-use code for signing in without the authenticator app.
+
+    Ten per account, made when two-factor is turned on and shown to the
+    owner once. Only a SHA-256 hash is kept: the codes are long and
+    random, so a fast hash is enough. Regenerating replaces the whole set.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="recovery_codes",
+    )
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Recovery code ({'used' if self.used_at else 'unused'}) — {self.user}"
 
 
 class UserSessionQuerySet(models.QuerySet):

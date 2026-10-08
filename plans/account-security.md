@@ -382,15 +382,15 @@ with a setup link). Turning it on records an event and sends an alert.
 
 ### Acceptance criteria
 
-- [ ] Visiting setup creates an unconfirmed device. Two-factor isn't "on"
+- [x] Visiting setup creates an unconfirmed device. Two-factor isn't "on"
       until a valid code is submitted.
-- [ ] A wrong code leaves setup pending and the user unenrolled.
-- [ ] Ten recovery codes are displayed once and never shown again. Only
+- [x] A wrong code leaves setup pending and the user unenrolled.
+- [x] Ten recovery codes are displayed once and never shown again. Only
       hashes are stored.
-- [ ] Codes one step early or late are accepted, and two steps off are
+- [x] Codes one step early or late are accepted, and two steps off are
       refused.
-- [ ] The QR code and setup key don't appear once setup is confirmed.
-- [ ] The hub's Two-factor card reflects the state.
+- [x] The QR code and setup key don't appear once setup is confirmed.
+- [x] The hub's Two-factor card reflects the state.
 
 ---
 
@@ -611,3 +611,22 @@ phase 8. Phases 15 and 16 build the rest around them.
       naming them, and leaves email-less accounts alone.
 - [x] Staff who aren't superusers can't run it, even with user change
       permission.
+
+## Amended 2026-10-07: asking for a code beyond sign-in
+
+Per the PRD's amendment of the same date. Built after phase 11. Phase 12
+is unchanged (sign-in always asks). Phase 13's "password or code" field
+applies only when the security-changes choice is off; with it on, the
+forms keep the separate password and code fields built here.
+
+- [x] A two-factor user can choose to be asked for a code at checkout,
+      on security changes, both or neither; both are off by default.
+- [x] Saving the choices takes the password and a code, records a
+      "Two-factor settings changed" event and alerts the owner.
+- [x] With the security-changes choice on, every re-authentication form
+      requires both the password and a code.
+- [x] With the checkout choice on, no order is placed without a valid
+      code.
+- [x] A wrong code counts toward the cooldown, a code works once, and a
+      mistake elsewhere on the form doesn't spend it.
+- [x] Without two-factor on, nobody is asked, whatever is stored.

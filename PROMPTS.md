@@ -30,6 +30,106 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 11: two-factor enrolment, plus asking for a code at checkout and on security changes
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 11"
+2. "Ok I would like for users with 2FA enabled to have the choice in their
+   profile to require 2FA before purchasing an order or signing in or
+   completing any security related task"
+3. "append conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 11 of `plans/account-security.md` and
+  ticked its six acceptance criteria:
+  - **Dependencies.** `pyotp` and `segno` were added with `uv add`.
+  - **Models.** `TwoFactorDevice` (one per user: plain secret,
+    `confirmed_at`, `last_used_step`) and `RecoveryCode` (SHA-256 hash,
+    `used_at`), in migration `0010_two_factor`. `User` gained
+    `two_factor_enabled`, true only for a confirmed device.
+  - **The security module.** `accounts/security.py` gained
+    `pending_two_factor_device`, `provisioning_uri`,
+    `provisioning_qr_svg`, `setup_key`, `verify_code`,
+    `enable_two_factor` and `generate_recovery_codes`. `verify_code`
+    accepts one step of drift either way. It also refuses any step at or
+    before the last one used, through a conditional `UPDATE`, so two
+    racing requests can't both succeed. That replay check was planned for
+    phase 12 and was brought forward.
+  - **The pages.** `/accounts/2fa/setup/` shows a white-backed inline QR
+    code, a "Can't scan it?" setup key in groups of four, and a code
+    field. Reloading keeps the same secret. Success renders the ten
+    recovery codes straight into the POST response, with no redirect.
+    Both pages are `never_cache`, and setup redirects to the hub once
+    two-factor is on.
+  - **The hub.** A Two-factor card (Off with a setup link, or On since a
+    date) was added, and the card grid became 2×2.
+  - **Tests.** `accounts/test_two_factor_setup.py` has 36 tests. Drift is
+    tested with a pinned `at=` clock. The suite went from 783 to 819.
+
+  Prompt 2 was a new feature, outside the plan. The agent asked four
+  questions before building, and the user took the recommended answer
+  each time:
+  - Sign-in always asks for a code, with no switch to turn it off.
+  - A security change takes the password *and* a code.
+  - Checkout gets a code field on its own page, not a separate step.
+  - The PRD and plan get dated amendments, and the feature is built now.
+
+  What was built:
+  - **Model and event.** Two flags on `TwoFactorDevice`,
+    `ask_at_checkout` and `ask_for_security_changes`, so they disappear
+    with the device. A new `2fa_settings_changed` event kind. Both are in
+    migration `0011_two_factor_settings`.
+  - **The security module.** `code_required`, `confirm_code` (counts a
+    wrong code toward the cooldown, and checks nothing while paused) and
+    `update_two_factor_settings` (records the event and sends an alert).
+  - **The forms.** An `AuthenticatorCodeMixin` in `accounts/forms.py`
+    adds the code field and checks it last, in `clean`, only once the
+    rest of the form is valid. `ReauthenticationForm` uses it, so every
+    re-auth form gains the field when the choice is on.
+    `TwoFactorSettingsForm` always asks for both password and code.
+  - **Checkout.** A new `CustomerCheckoutForm(AuthenticatorCodeMixin,
+    CheckoutForm)` is now the checkout view's form.
+  - **Pages.** A settings page at `/accounts/2fa/settings/`, the choices
+    shown on the hub card, and a "Confirm it's you" section on checkout.
+  - **Docs.** Dated amendments in `prd/account-security.md` and the plan.
+  - **Tests.** `accounts/test_two_factor_settings.py` has 34 tests. The
+    suite went to 853 passing, and ruff is clean.
+
+- **Deviations:**
+  - Prompt 1 asked no questions. These defaults were taken and reported:
+    - Wrong codes on the setup page don't count toward the cooldown,
+      because the secret is printed beside the field.
+    - The authenticator entry is labelled with the username, not the
+      email.
+    - The card reuses the existing phone icon.
+    - The setup page says sign-in will ask for a code, which only becomes
+      true in phase 12.
+  - Prompt 2's request included "or signing in". The user agreed to keep
+    sign-in mandatory rather than make it a choice. The agent decided
+    some details itself:
+    - Saving the settings always needs both password and code.
+    - Both choices default off.
+    - `CheckoutForm` was subclassed rather than edited, keeping its "no
+      `clean` methods" test true.
+  - Nothing was committed or opened in a browser.
+
+- **Sideways:**
+  - **Two of the first phase-11 tests were wrong; the code was fine.**
+    One assumed no events existed, but `force_login` records a sign-in.
+    The other read `response.templates[0]`, which was the alert email's
+    template. Both assertions were fixed.
+  - **The first edit to `orders/views.py` broke an import.** It replaced
+    the `CheckoutForm` import, which `CheckoutAddressFieldsView` still
+    uses. A grep caught it before the tests ran, and the import was put
+    back.
+  - **One model edit missed** because the docstring's exact wording
+    differed. It was re-read and reapplied.
+  - **The suite takes about 5½ minutes.** One attempt to wait for it with
+    chained `sleep` calls was blocked by the tool, and it was rerun in the
+    background instead.
+
 ## 2026-10-07 — Account security, Phase 10: password reset
 
 ### Prompts

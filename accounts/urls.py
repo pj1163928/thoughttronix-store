@@ -44,6 +44,12 @@ urlpatterns = [
         views.PasswordResetConfirmView.as_view(),
         name="password_reset_confirm",
     ),
+    path("2fa/setup/", views.TwoFactorSetupView.as_view(), name="two_factor_setup"),
+    path(
+        "2fa/settings/",
+        views.TwoFactorSettingsView.as_view(),
+        name="two_factor_settings",
+    ),
     path(
         "sessions/sign-out-others/",
         views.SignOutOthersView.as_view(),
