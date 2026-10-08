@@ -30,6 +30,119 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 9: change email by confirmation link, plus an Actions section and animated icons
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 9"
+2. "Ok I would like to mke some changes I would like to combine the Change
+   password Change username and Change email into one section called
+   actions use iconography where approprite to distinguish between each of
+   the actions. Also incude animated Iconography for the other sections of
+   this as well to make it look cleaner."
+3. "How can I test this in the browser" (with phase 9's "Before
+   confirmation, the old email stays in effect for sign-in and reset"
+   criterion selected in the plan)
+4. "append the conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 9 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The token.** `accounts/security.py` gained an `EmailChange`
+    dataclass, `email_taken`, `make_email_change_token`,
+    `email_change_for_token`, `request_email_change` and `change_email`.
+    Like the verification link, the token is a `signing.Signer` object
+    with no table. It carries the user id, the old and new addresses and
+    the issue time. It is refused when tampered with, older than 24 hours,
+    for a deleted account, or once the account's email no longer matches
+    the old address it carries. That last rule also means confirming one
+    link kills every other pending one.
+  - **The switch.** `change_email` re-checks uniqueness inside a
+    transaction, and the database constraint backs it up through a caught
+    `IntegrityError`. It then sets the email and `email_verified_at`,
+    records "Email changed" with `{"old", "new"}` and emails the notice to
+    the *old* address. It takes an optional `actor`, so phase 17's admin
+    edit can reuse it, and with an admin as actor the notice reads "by
+    ThoughtTronix support". To send to the old address, `send_alert`
+    gained a `to=` argument; every existing caller is unchanged.
+  - **The pages.** `accounts:change_email` (`ChangeEmailForm`, built on
+    `ReauthenticationForm`, so a wrong password counts toward the
+    cooldown) mails the link to the new address, records "Email change
+    requested" and changes nothing. `accounts:confirm_email_change` shows
+    a Confirm button on GET, switches only on POST, needs no sign-in, and
+    says "That address is taken" when another account got there first.
+    The hub's Profile card and the no-email banner link to the new page.
+  - **Tests.** `accounts/test_change_email.py` has 31 tests. "The old
+    email still works for reset" is checked through Django's
+    `PasswordResetForm.get_users`, because the reset pages arrive in
+    phase 10.
+
+  Prompt 2 restructured the Account page. Change password, Change
+  username and Change email left their cards and became three tiles in a
+  new **Actions** section: a key, an @ and an envelope, each in its own
+  colour, with a chevron. A new `accounts/partials/_icon.html` renders
+  Heroicons outline icons by name (the navbar's set). New rules in
+  `assets/css/source.css` make each icon draw itself in on load, using
+  `pathLength="1"` and a sliding stroke dash, and play a small motion
+  (wiggle, bob, pop, spin, tilt, nudge) when its card is hovered or
+  focused. Everything stands still under `prefers-reduced-motion`. Every
+  section heading got an icon, and "This device" got a pulsing status
+  dot. The device list shows a phone or computer icon, from a new
+  `UserSession.is_phone`. The empty activity state's 🛡️ emoji became a
+  drawn shield. `docs/TEMPLATES.md` documents the partial and the CSS.
+
+  Prompt 3 changed no code. It produced a browser walkthrough using the
+  seeded `customer`, covering:
+  - asking for the change and its refusals;
+  - the old email still signing in before confirmation;
+  - confirming, and the notice in the console;
+  - the reused, taken, superseded, expired (minted in `manage.py shell`
+    with a backdated `at=`) and tampered links;
+  - an email-less account adding one;
+  - the admin's event list.
+
+  The suite went from 725 to 761 tests. Ruff is clean and nothing was
+  committed.
+
+- **Deviations:** No questions were asked in either building prompt.
+  These defaults were taken and reported:
+  - The confirmation page names the account's username.
+  - Recapitalising your own address is allowed, as for usernames, and
+    the identical address is refused.
+  - The request event stores both addresses in `details`.
+
+  In prompt 2:
+  - "Edit profile" stayed on the Profile card rather than joining
+    Actions, since it isn't a security change.
+  - The Password card was kept, showing only "last changed".
+  - The phone-or-computer device icon was a small addition the prompt
+    didn't name.
+
+  The Actions redesign got no dated amendment in the PRD or plan, unlike
+  the earlier UI changes made in this feature.
+
+- **Sideways:**
+  - **The first draft of a test held a junk line**
+    (`ask(...) if False else ask(...)`). The agent caught it and rewrote
+    it, with the `ask` helper taking request kwargs, before the tests
+    first ran. All 31 then passed on the first run.
+  - **The redesign broke two existing tests.**
+    - The icon partial's trailing newline split the badge's
+      `>Verified<`, so "Verified" now sits in its own span.
+    - The new Actions test counted the no-email banner's "Add an email"
+      link. The seeded-style `customer` fixture has no email, so the
+      test now checks the Actions section against the summary cards
+      only.
+  - **`db.sqlite3` showed as modified after prompt 1** even though the
+    agent never touched it, most likely because of the user's running
+    dev server. `seed` still needs to run before it is committed.
+  - **`tailwind build` reported the stylesheet already up to date.** The
+    user's watcher had rebuilt it, and the agent confirmed the new
+    classes were in the compiled CSS.
+  - **The agent never opened the pages in a browser.** The animations are
+    unchecked by eye.
+
 ## 2026-10-07 — Account security, Phase 8: email verification, plus a profile menu and profile pictures
 
 ### Prompts

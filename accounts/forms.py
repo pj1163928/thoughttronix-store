@@ -193,6 +193,38 @@ class ChangeUsernameForm(ReauthenticationForm):
         return self.user
 
 
+class ChangeEmailForm(ReauthenticationForm):
+    """The current password, then the new email address.
+
+    Submitting it changes nothing yet: the view mails a confirmation link
+    to the new address, and the old one stays in effect until it is
+    followed. The address is held to sign-up's rule, unique among other
+    accounts in any capitalisation; recapitalising your own is allowed,
+    and the address you already have is refused, since it would change
+    nothing. Uniqueness is checked again when the link is followed.
+    """
+
+    purpose = "change_email"
+
+    email = forms.EmailField(
+        label="New email address",
+        max_length=User._meta.get_field("email").max_length,
+        widget=forms.EmailInput(attrs={"autocomplete": "email"}),
+    )
+
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        if email == self.user.email:
+            raise forms.ValidationError(
+                "That's already your email address.", code="unchanged"
+            )
+        if security.email_taken(email, by_other_than=self.user):
+            raise forms.ValidationError(
+                "An account with that email address already exists.", code="unique"
+            )
+        return email
+
+
 class SignOutOthersForm(ReauthenticationForm):
     """Only the current password: the button's whole job is to act."""
 

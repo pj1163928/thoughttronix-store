@@ -8,17 +8,23 @@
 
   {% if not user.email %}
     <div class="alert alert-warning mt-6" role="alert">
+      {% include "accounts/partials/_icon.html" with name="warning" only %}
       <span>
         Your account has no email address, so a forgotten password can't be
         recovered. Add one to keep your account safe.
       </span>
+      <a href="{% url 'accounts:change_email' %}" class="btn btn-sm">Add an email</a>
     </div>
   {% endif %}
 
+  {# What the account is: one card per thing that can be checked at a glance. #}
   <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-    <section class="card bg-base-100 shadow-md" aria-labelledby="profile-heading">
+    <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="profile-heading">
       <div class="card-body">
-        <h2 id="profile-heading" class="card-title text-base">Profile</h2>
+        <h2 id="profile-heading" class="card-title text-base">
+          <span class="text-primary">{% include "accounts/partials/_icon.html" with name="user" motion="pop" only %}</span>
+          Profile
+        </h2>
         <div class="flex items-center gap-3">
           <div class="avatar">
             <div class="w-16 rounded-full">
@@ -38,7 +44,7 @@
               {% if user.email %}
                 {{ user.email }}
                 {% if user.email_verified %}
-                  <span class="badge badge-success badge-sm ml-1">Verified</span>
+                  <span class="badge badge-success badge-sm ml-1 gap-1">{% include "accounts/partials/_icon.html" with name="check" size="h-3.5 w-3.5" delay="0.6" only %}<span>Verified</span></span>
                 {% endif %}
               {% else %}
                 <span class="italic opacity-70">None</span>
@@ -53,16 +59,21 @@
             <button type="submit" class="btn btn-link btn-xs p-0">resend link</button>
           </form>
         {% endif %}
-        <div class="card-actions mt-2 justify-end">
-          <a href="{% url 'accounts:edit_profile' %}" class="btn btn-ghost btn-sm">Edit profile</a>
-          <a href="{% url 'accounts:change_username' %}" class="btn btn-ghost btn-sm">Change username</a>
+        <div class="card-actions mt-auto justify-end pt-2">
+          <a href="{% url 'accounts:edit_profile' %}" class="btn btn-ghost btn-sm">
+            {% include "accounts/partials/_icon.html" with name="pencil" size="h-4 w-4" only %}
+            Edit profile
+          </a>
         </div>
       </div>
     </section>
 
-    <section class="card bg-base-100 shadow-md" aria-labelledby="password-heading">
+    <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="password-heading">
       <div class="card-body">
-        <h2 id="password-heading" class="card-title text-base">Password</h2>
+        <h2 id="password-heading" class="card-title text-base">
+          <span class="text-primary">{% include "accounts/partials/_icon.html" with name="lock" motion="tilt" delay="0.1" only %}</span>
+          Password
+        </h2>
         <p class="text-sm">
           {% if password_last_changed %}
             Last changed
@@ -71,15 +82,15 @@
             Never changed
           {% endif %}
         </p>
-        <div class="card-actions mt-2 justify-end">
-          <a href="{% url 'accounts:password_change' %}" class="btn btn-ghost btn-sm">Change password</a>
-        </div>
       </div>
     </section>
 
-    <section class="card bg-base-100 shadow-md" aria-labelledby="addresses-heading">
+    <section class="group card bg-base-100 shadow-md transition-shadow hover:shadow-lg" aria-labelledby="addresses-heading">
       <div class="card-body">
-        <h2 id="addresses-heading" class="card-title text-base">Addresses</h2>
+        <h2 id="addresses-heading" class="card-title text-base">
+          <span class="text-primary">{% include "accounts/partials/_icon.html" with name="map-pin" motion="bob" delay="0.2" only %}</span>
+          Addresses
+        </h2>
         <p class="text-sm">
           {% if address_count %}
             {{ address_count }} saved address{{ address_count|pluralize:"es" }}, offered at checkout.
@@ -87,17 +98,69 @@
             No saved addresses yet.
           {% endif %}
         </p>
-        <div class="card-actions mt-2 justify-end">
+        <div class="card-actions mt-auto justify-end pt-2">
           <a href="{% url 'accounts:addresses' %}" class="btn btn-ghost btn-sm">Manage addresses</a>
         </div>
       </div>
     </section>
-
   </div>
 
-  <section id="devices" class="card mt-4 bg-base-100 shadow-md" aria-labelledby="devices-heading">
+  {# What can be changed: each tile opens its own small page, which asks for the current password. #}
+  <section class="mt-8" aria-labelledby="actions-heading">
+    <h2 id="actions-heading" class="flex items-center gap-2 text-xl font-bold">
+      <span class="text-primary">{% include "accounts/partials/_icon.html" with name="bolt" delay="0.2" only %}</span>
+      Actions
+    </h2>
+    <p class="mt-1 text-sm opacity-70">Each one asks for your current password first.</p>
+
+    <div class="mt-4 grid gap-4 sm:grid-cols-3">
+      <a href="{% url 'accounts:password_change' %}" class="group card bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">
+        <div class="card-body flex-row items-center gap-4">
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+            {% include "accounts/partials/_icon.html" with name="key" motion="wiggle" delay="0.3" only %}
+          </span>
+          <div class="min-w-0 flex-1">
+            <h3 class="font-semibold">Change password</h3>
+            <p class="text-sm opacity-70">Every other device is signed out.</p>
+          </div>
+          <span class="opacity-50">{% include "accounts/partials/_icon.html" with name="chevron" motion="nudge" size="h-5 w-5" delay="0.5" only %}</span>
+        </div>
+      </a>
+
+      <a href="{% url 'accounts:change_username' %}" class="group card bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">
+        <div class="card-body flex-row items-center gap-4">
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-secondary/15 text-secondary">
+            {% include "accounts/partials/_icon.html" with name="at" motion="spin" delay="0.4" only %}
+          </span>
+          <div class="min-w-0 flex-1">
+            <h3 class="font-semibold">Change username</h3>
+            <p class="text-sm opacity-70">Works at once; you stay signed in.</p>
+          </div>
+          <span class="opacity-50">{% include "accounts/partials/_icon.html" with name="chevron" motion="nudge" size="h-5 w-5" delay="0.6" only %}</span>
+        </div>
+      </a>
+
+      <a href="{% url 'accounts:change_email' %}" class="group card bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">
+        <div class="card-body flex-row items-center gap-4">
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+            {% include "accounts/partials/_icon.html" with name="envelope" motion="bob" delay="0.5" only %}
+          </span>
+          <div class="min-w-0 flex-1">
+            <h3 class="font-semibold">{% if user.email %}Change email{% else %}Add email{% endif %}</h3>
+            <p class="text-sm opacity-70">Confirmed by a link sent to the new address.</p>
+          </div>
+          <span class="opacity-50">{% include "accounts/partials/_icon.html" with name="chevron" motion="nudge" size="h-5 w-5" delay="0.7" only %}</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <section id="devices" class="group card mt-8 bg-base-100 shadow-md" aria-labelledby="devices-heading">
     <div class="card-body">
-      <h2 id="devices-heading" class="card-title text-base">Devices</h2>
+      <h2 id="devices-heading" class="card-title text-base">
+        <span class="text-primary">{% include "accounts/partials/_icon.html" with name="desktop" motion="pop" delay="0.3" only %}</span>
+        Devices
+      </h2>
       <p class="text-sm opacity-70">
         Browsers signed in to your account. Each browser counts once, however
         many windows or tabs it has open.
@@ -106,27 +169,43 @@
       <ul class="divide-y divide-base-300">
         {% for user_session in user_sessions %}
           <li class="flex flex-wrap items-center justify-between gap-3 py-3">
-            <div>
-              <p class="font-semibold">
-                {{ user_session.label }}
-                {% if user_session.pk == current_session_id %}
-                  <span class="badge badge-primary badge-sm ml-1">This device</span>
-                {% endif %}
-              </p>
-              <p class="text-sm opacity-70">
-                <span class="font-mono">{{ user_session.ip_address|default:"Unknown IP" }}</span>
-                · Signed in {{ user_session.created_at|timesince }} ago
-                (<time datetime="{{ user_session.created_at|date:'c' }}">{{ user_session.created_at|date:"j M Y, H:i T" }}</time>)
-                ·
-                {% if user_session.pk == current_session_id %}
-                  Active now
+            <div class="flex items-center gap-3">
+              <span class="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-base-200">
+                {% if user_session.is_phone %}
+                  {% include "accounts/partials/_icon.html" with name="phone" size="h-5 w-5" delay="0.4" only %}
                 {% else %}
-                  Last active {{ user_session.last_seen_at|timesince }} ago
+                  {% include "accounts/partials/_icon.html" with name="desktop" size="h-5 w-5" delay="0.4" only %}
                 {% endif %}
-              </p>
+              </span>
+              <div>
+                <p class="font-semibold">
+                  {{ user_session.label }}
+                  {% if user_session.pk == current_session_id %}
+                    <span class="badge badge-primary badge-sm ml-1 gap-1.5">
+                      <span class="inline-grid *:[grid-area:1/1]" aria-hidden="true">
+                        <span class="status status-success motion-safe:animate-ping"></span>
+                        <span class="status status-success"></span>
+                      </span>
+                      This device
+                    </span>
+                  {% endif %}
+                </p>
+                <p class="text-sm opacity-70">
+                  <span class="font-mono">{{ user_session.ip_address|default:"Unknown IP" }}</span>
+                  · Signed in {{ user_session.created_at|timesince }} ago
+                  (<time datetime="{{ user_session.created_at|date:'c' }}">{{ user_session.created_at|date:"j M Y, H:i T" }}</time>)
+                  ·
+                  {% if user_session.pk == current_session_id %}
+                    Active now
+                  {% else %}
+                    Last active {{ user_session.last_seen_at|timesince }} ago
+                  {% endif %}
+                </p>
+              </div>
             </div>
             {% if user_session.pk != current_session_id %}
               <a href="{% url 'accounts:sign_out_device' user_session.pk %}" class="btn btn-ghost btn-sm text-error">
+                {% include "accounts/partials/_icon.html" with name="sign-out" size="h-4 w-4" only %}
                 Sign out
               </a>
             {% endif %}
@@ -145,14 +224,20 @@
             {% include "orders/partials/_field.html" %}
           {% endfor %}
         </div>
-        <button type="submit" class="btn btn-outline btn-sm">Sign out of all other devices</button>
+        <button type="submit" class="btn btn-outline btn-sm">
+          {% include "accounts/partials/_icon.html" with name="sign-out" size="h-4 w-4" only %}
+          Sign out of all other devices
+        </button>
       </form>
     </div>
   </section>
 
-  <section class="card mt-4 bg-base-100 shadow-md" aria-labelledby="activity-heading">
+  <section class="group card mt-4 bg-base-100 shadow-md" aria-labelledby="activity-heading">
     <div class="card-body">
-      <h2 id="activity-heading" class="card-title text-base">Recent security activity</h2>
+      <h2 id="activity-heading" class="card-title text-base">
+        <span class="text-primary">{% include "accounts/partials/_icon.html" with name="shield" motion="pop" delay="0.4" only %}</span>
+        Recent security activity
+      </h2>
       {% if events %}
         <p class="text-sm opacity-70">
           Your last {{ events|length }} security event{{ events|length|pluralize }}.
@@ -185,8 +270,10 @@
         </div>
       {% else %}
         <div class="py-8 text-center">
-          <p class="text-4xl">🛡️</p>
-          <p class="mt-2 font-semibold">No security activity yet</p>
+          <span class="mx-auto grid h-16 w-16 place-items-center rounded-full bg-primary/15 text-primary">
+            {% include "accounts/partials/_icon.html" with name="shield" size="h-9 w-9" delay="0.5" only %}
+          </span>
+          <p class="mt-3 font-semibold">No security activity yet</p>
           <p class="mt-1 text-sm opacity-70">
             Sign-ins and changes to your account will be listed here.
           </p>

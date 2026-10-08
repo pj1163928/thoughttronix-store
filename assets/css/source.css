@@ -43,3 +43,117 @@
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
+
+/* The Account page's icons (accounts/partials/_icon.html). Each draws itself in once when the
+   page loads: every shape has pathLength="1", so a single dash as long as the line can be slid
+   out of view and back. When the card holding an icon (a .group) is hovered or focused, the
+   icon makes one small movement that suits it — a key wiggles, an envelope bobs, a chevron
+   nudges forward. People who ask for reduced motion get the finished icons, standing still. */
+.icon-draw :is(path, circle) {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: icon-draw 0.9s ease-out var(--icon-delay, 0s) forwards;
+}
+
+@keyframes icon-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.icon-wiggle,
+.icon-bob,
+.icon-pop,
+.icon-spin,
+.icon-tilt {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-wiggle {
+  animation: icon-wiggle 0.5s ease-in-out;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-bob {
+  animation: icon-bob 0.6s ease-in-out;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-pop {
+  animation: icon-pop 0.4s ease-out;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-spin {
+  animation: icon-spin 0.7s ease-in-out;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-tilt {
+  animation: icon-tilt 0.6s ease-in-out;
+}
+
+.icon-nudge {
+  transition: translate 0.2s ease-out;
+}
+
+.group:is(:hover, :focus-visible, :focus-within) .icon-nudge {
+  translate: 0.25rem 0;
+}
+
+@keyframes icon-wiggle {
+  25% {
+    rotate: -14deg;
+  }
+  75% {
+    rotate: 14deg;
+  }
+}
+
+@keyframes icon-bob {
+  40% {
+    translate: 0 -0.2rem;
+  }
+  70% {
+    translate: 0 0.05rem;
+  }
+}
+
+@keyframes icon-pop {
+  50% {
+    scale: 1.18;
+  }
+}
+
+@keyframes icon-spin {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes icon-tilt {
+  30% {
+    rotate: -8deg;
+    translate: 0 -0.1rem;
+  }
+  70% {
+    rotate: 6deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-draw :is(path, circle) {
+    stroke-dashoffset: 0;
+    animation: none;
+  }
+
+  .group .icon-wiggle,
+  .group .icon-bob,
+  .group .icon-pop,
+  .group .icon-spin,
+  .group .icon-tilt {
+    animation: none !important;
+  }
+
+  .group .icon-nudge {
+    translate: none !important;
+    transition: none;
+  }
+}

@@ -19,6 +19,7 @@ from django.views.generic import (
 from . import security
 from .forms import (
     AddressForm,
+    ChangeEmailForm,
     ChangeUsernameForm,
     PasswordChangeForm,
     ProfileForm,
@@ -222,6 +223,75 @@ class ChangeUsernameView(LoginRequiredMixin, FormView):
             self.request, f"Username changed. You're now {user.get_username()}."
         )
         return super().form_valid(form)
+
+
+class ChangeEmailView(LoginRequiredMixin, FormView):
+    """Ask for a new email address, after the current password.
+
+    Nothing changes here: a confirmation link goes to the new address, and
+    the old one stays in effect until it is followed. Sending and
+    recording are ``accounts.security``'s.
+    """
+
+    form_class = ChangeEmailForm
+    template_name = "accounts/change_email.html"
+    success_url = reverse_lazy("accounts:account")
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def form_valid(self, form):
+        new_email = form.cleaned_data["email"]
+        security.request_email_change(
+            self.request.user, new_email, request=self.request
+        )
+        current = self.request.user.email
+        messages.success(
+            self.request,
+            f"We've sent a confirmation link to {new_email}. "
+            + (
+                f"Your email stays {current} until you follow it."
+                if current
+                else "Your email is added once you follow it."
+            ),
+        )
+        return super().form_valid(form)
+
+
+class ConfirmEmailChangeView(TemplateView):
+    """Switch to a new email address from the link that was mailed to it.
+
+    No sign-in is needed: the token is the proof. As with verification,
+    GET only shows the change behind a button, so a mail scanner fetching
+    the link changes nothing; the POST from that button makes the change.
+    """
+
+    template_name = "accounts/confirm_email_change.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.change = security.email_change_for_token(kwargs["token"])
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            change=self.change,
+            available=self.change is not None and self.change.is_available(),
+            **kwargs,
+        )
+
+    def post(self, request, *args, **kwargs):
+        if self.change is None or not security.change_email(
+            self.change.user, self.change.new_email, request=request
+        ):
+            return self.get(request, *args, **kwargs)
+        messages.success(request, f"Your email address is now {self.change.new_email}.")
+        if request.user.is_authenticated:
+            return redirect("accounts:account")
+        return redirect("accounts:login")
 
 
 class SendVerificationView(LoginRequiredMixin, View):

@@ -418,6 +418,11 @@ class UserSession(models.Model):
             return f"{browser} on {system}"
         return browser or system or "Unknown browser"
 
+    @property
+    def is_phone(self):
+        """Whether the device is a phone, so the Account page can draw one."""
+        return _first_match(self.user_agent, _SYSTEMS) in {"iPhone", "Android"}
+
 
 # User-agent markers, checked in order: Edge and Opera also say "Chrome",
 # Chrome also says "Safari", iPhones also say "Mac OS X", and Android also

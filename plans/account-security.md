@@ -326,15 +326,15 @@ email no longer matches the one it carries.
 
 ### Acceptance criteria
 
-- [ ] Before confirmation, the old email stays in effect for sign-in and
+- [x] Before confirmation, the old email stays in effect for sign-in and
       reset.
-- [ ] Confirmation switches the email, marks it verified and emails the
+- [x] Confirmation switches the email, marks it verified and emails the
       old address.
-- [ ] Confirmation is refused if the new address has been taken in the
+- [x] Confirmation is refused if the new address has been taken in the
       meantime.
-- [ ] Confirmation is refused after 24 hours, or if the email changed
+- [x] Confirmation is refused after 24 hours, or if the email changed
       after the token was issued.
-- [ ] GET on the confirmation link changes nothing.
+- [x] GET on the confirmation link changes nothing.
 
 ---
 

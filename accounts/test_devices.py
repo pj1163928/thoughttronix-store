@@ -185,6 +185,19 @@ def test_the_device_label_names_browser_and_system(user_agent, label):
     assert UserSession(user_agent=user_agent).label == label
 
 
+@pytest.mark.parametrize(
+    ("user_agent", "is_phone"),
+    [
+        (FIREFOX_ON_WINDOWS, False),
+        (SAFARI_ON_IPHONE, True),
+        ("Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/129.0.0.0", True),
+        ("", False),
+    ],
+)
+def test_phones_are_told_apart_from_computers(user_agent, is_phone):
+    assert UserSession(user_agent=user_agent).is_phone is is_phone
+
+
 # --- The list on the Account page ------------------------------------------------
 
 

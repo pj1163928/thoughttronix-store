@@ -8,6 +8,13 @@ urlpatterns = [
     path("", views.AccountView.as_view(), name="account"),
     path("profile/", views.EditProfileView.as_view(), name="edit_profile"),
     path("username/", views.ChangeUsernameView.as_view(), name="change_username"),
+    path("email/", views.ChangeEmailView.as_view(), name="change_email"),
+    # Sent to the new address; the token is the proof, so no sign-in.
+    path(
+        "email/confirm/<str:token>/",
+        views.ConfirmEmailChangeView.as_view(),
+        name="confirm_email_change",
+    ),
     path(
         "email/verify/",
         views.SendVerificationView.as_view(),

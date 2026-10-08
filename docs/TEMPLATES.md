@@ -44,6 +44,15 @@
   (`_picture.html` with `decorative=True`) fills the letterbox, and the
   full-size view is a `:target` overlay (`#zoom-<n>`, closed by `#close`,
   a fragment no element has, so the page doesn't jump).
+- The Account page's icons come from `accounts/partials/_icon.html`: one
+  Heroicons outline icon by `name` (the same set as the navbar's), with
+  optional `size`, `motion` and `delay`. Their animations are the second
+  thing in `assets/css/source.css`: each icon draws itself in on load
+  (every shape has `pathLength="1"`, so a stroke dash can be slid away),
+  and a `motion` (`wiggle`, `bob`, `pop`, `spin`, `tilt`, `nudge`) plays
+  when the surrounding `.group` card is hovered or focused. Everything
+  stands still under `prefers-reduced-motion`. Icons are `aria-hidden`;
+  the words beside them carry the meaning.
 - Image frames are 4:3 everywhere, matching the placeholder SVGs.
 - `assets/css/source.css` is the Tailwind input; `assets/css/tailwind.css` is
   compiled output (gitignored, never edit).

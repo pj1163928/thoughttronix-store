@@ -10,8 +10,8 @@ recording a ``SecurityEvent``, the sign-in cooldown built on top of it,
 the alert email, "prove it's you": the current-password check that
 guards every sensitive change, with the password change, the username
 change and "sign out of all other devices" it guards, the list of
-signed-in devices that lets one be signed out at a time, and the signed
-links that verify an email address.
+signed-in devices that lets one be signed out at a time, the signed
+links that verify an email address, and those that confirm a new one.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 from django.contrib.auth import logout, update_session_auth_hash
 from django.core import signing
 from django.core.mail import send_mail
+from django.db import IntegrityError, transaction
 from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
@@ -693,6 +694,175 @@ def mark_email_verified(
     return True
 
 
+# --- Changing an email address ----------------------------------------------------
+#
+# A new address takes effect only once a link sent to it is followed, so a
+# typo can't cut the owner off: until then the old address goes on
+# working for sign-in and password reset. Like a verification link, the
+# token has no table behind it. It carries the account, the new address
+# and the address it is replacing, so it dies when the account's email
+# changes by any route, including another change being confirmed first.
+
+EMAIL_CHANGE_MAX_AGE = timedelta(hours=24)
+_EMAIL_CHANGE_SALT = "accounts.security.change_email"
+
+
+@dataclass(frozen=True)
+class EmailChange:
+    """A change of address waiting to be confirmed: ``user`` to ``new_email``."""
+
+    user: User
+    new_email: str
+
+    @property
+    def old_email(self) -> str:
+        return self.user.email
+
+    def is_available(self) -> bool:
+        """Whether no other account has taken the new address in the meantime."""
+        return not email_taken(self.new_email, by_other_than=self.user)
+
+
+def email_taken(email: str, *, by_other_than: User) -> bool:
+    """Whether an account other than ``by_other_than`` uses ``email``, in any case."""
+    return User.objects.with_email(email).exclude(pk=by_other_than.pk).exists()
+
+
+def make_email_change_token(
+    user: User, new_email: str, *, at: datetime | None = None
+) -> str:
+    """A token that moves ``user`` to ``new_email``, valid for 24 hours.
+
+    ``at`` stamps the token with a given moment instead of now; tests use
+    it to pin the clock.
+    """
+    issued = at or timezone.now()
+    return signing.Signer(salt=_EMAIL_CHANGE_SALT).sign_object(
+        {
+            "user": user.pk,
+            "old": user.email,
+            "new": new_email,
+            "at": int(issued.timestamp()),
+        }
+    )
+
+
+def email_change_for_token(
+    token: str, *, now: datetime | None = None
+) -> EmailChange | None:
+    """The change ``token`` would make, or ``None`` if it makes none.
+
+    A token is refused when its signature doesn't check out, when it is
+    more than 24 hours old, when its account is gone, or when the
+    account's email is no longer the one it replaces. Whether the new
+    address is still free is a separate question (``is_available``),
+    asked again when the change is confirmed.
+    """
+    try:
+        payload = signing.Signer(salt=_EMAIL_CHANGE_SALT).unsign_object(token)
+        issued = datetime.fromtimestamp(payload["at"], tz=UTC)
+        user_id, old, new = payload["user"], payload["old"], payload["new"]
+    except (signing.BadSignature, KeyError, TypeError, ValueError, OverflowError):
+        return None
+    now = now or timezone.now()
+    if not issued <= now <= issued + EMAIL_CHANGE_MAX_AGE:
+        return None
+    user = User.objects.filter(pk=user_id).first()
+    if user is None or not new or user.email != old:
+        return None
+    return EmailChange(user, new)
+
+
+def request_email_change(user: User, new_email: str, *, request: HttpRequest) -> None:
+    """Email a confirmation link to ``new_email``, and record the request.
+
+    Nothing about the account changes yet. The link goes to the *new*
+    address, because following it is what proves the owner receives mail
+    there. Each request is independent: a new one doesn't cancel the last,
+    but whichever is confirmed first kills the rest.
+    """
+    link = request.build_absolute_uri(
+        reverse(
+            "accounts:confirm_email_change",
+            args=[make_email_change_token(user, new_email)],
+        )
+    )
+    body = render_to_string(
+        "accounts/email/confirm_email_change.txt",
+        {
+            "user": user,
+            "new_email": new_email,
+            "link": link,
+            "hours": _hours(EMAIL_CHANGE_MAX_AGE),
+        },
+    )
+    send_mail("ThoughtTronix: Confirm your new email address", body, None, [new_email])
+    record_event(
+        Kind.EMAIL_CHANGE_REQUESTED,
+        user,
+        actor=user,
+        request=request,
+        details={"old": user.email, "new": new_email},
+    )
+
+
+def change_email(
+    user: User,
+    new_email: str,
+    *,
+    actor: User | None = None,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Switch ``user`` to ``new_email``, counted as verified, and tell the old address.
+
+    Used when a confirmation link is followed. ``actor`` is whoever made
+    the change and defaults to ``user``; an admin's direct edit passes the
+    admin. Uniqueness is checked again here, and the database's own
+    constraint backs that up should two accounts race for one address.
+    Returns ``False``, changing and recording nothing, when another
+    account has the address.
+
+    The notice goes to the address being replaced, which is the one an
+    attacker who changed it could no longer read. An account that had no
+    email gets no notice.
+    """
+    at = at or timezone.now()
+    old_email = user.email
+    try:
+        with transaction.atomic():
+            if email_taken(new_email, by_other_than=user):
+                return False
+            user.email = new_email
+            user.email_verified_at = at
+            user.save(update_fields=["email", "email_verified_at"])
+    except IntegrityError:
+        user.refresh_from_db(fields=["email", "email_verified_at"])
+        return False
+    record_event(
+        Kind.EMAIL_CHANGE_CONFIRMED,
+        user,
+        actor=actor or user,
+        request=request,
+        details={"old": old_email, "new": new_email},
+        at=at,
+    )
+    by_support = actor is not None and actor.pk != user.pk
+    send_alert(
+        user,
+        "Your email address was changed",
+        (
+            f"The email address for your ThoughtTronix account was changed "
+            f"{'by ThoughtTronix support ' if by_support else ''}from "
+            f"{old_email} to {new_email}. Account emails, including "
+            f"password resets, will go to the new address from now on."
+        ),
+        at=at,
+        to=old_email,
+    )
+    return True
+
+
 def overridable(admin: User, users: Iterable[User]) -> tuple[list[User], list[User]]:
     """Split ``users`` into those ``admin`` may override and those skipped.
 
@@ -718,16 +888,24 @@ def _hours(duration: timedelta) -> int:
 
 
 def send_alert(
-    user: User, subject: str, what_happened: str, *, at: datetime | None = None
+    user: User,
+    subject: str,
+    what_happened: str,
+    *,
+    at: datetime | None = None,
+    to: str | None = None,
 ) -> bool:
     """Email ``user`` that something happened to their account.
 
     Every security alert goes through here. The email says what happened
-    and when, and ends "Wasn't you? Contact support." An account with no
-    email is skipped silently: older accounts may have none, and an alert
-    is never worth an error. Returns whether an email was sent.
+    and when, and ends "Wasn't you? Contact support." It goes to the
+    account's email, or to ``to`` when given (a changed email's notice
+    goes to the address it replaced). No address means no email, silently:
+    older accounts may have none, and an alert is never worth an error.
+    Returns whether an email was sent.
     """
-    if not user.email:
+    address = user.email if to is None else to
+    if not address:
         return False
     body = render_to_string(
         "accounts/email/alert.txt",
@@ -737,7 +915,7 @@ def send_alert(
             "when": _format_time(at or timezone.now()),
         },
     )
-    send_mail(f"ThoughtTronix: {subject}", body, None, [user.email])
+    send_mail(f"ThoughtTronix: {subject}", body, None, [address])
     return True
 
 

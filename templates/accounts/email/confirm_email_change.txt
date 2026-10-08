@@ -1,0 +1,14 @@
+{% autoescape off %}Hi {{ user.get_username }},
+
+Please confirm that you want {{ new_email }} to be the email address for
+your ThoughtTronix account:
+
+{{ link }}
+
+The link works for {{ hours }} hours. Until you follow it, nothing about
+your account changes.
+
+Didn't ask for this? You can ignore this email.
+
+— The ThoughtTronix Store
+{% endautoescape %}

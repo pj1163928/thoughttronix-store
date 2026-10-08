@@ -66,6 +66,20 @@ def test_navbar_links_to_account_instead_of_addresses(client, customer):
     assert "Addresses" not in page
 
 
+def test_the_actions_section_holds_every_change(client, customer):
+    client.force_login(customer)
+
+    page = hub(client).content.decode()
+    cards = page[
+        page.index('id="profile-heading"') : page.index('id="actions-heading"')
+    ]
+    actions = page[page.index('id="actions-heading"') : page.index('id="devices"')]
+
+    for name in ("password_change", "change_username", "change_email"):
+        assert reverse(f"accounts:{name}") in actions
+        assert reverse(f"accounts:{name}") not in cards
+
+
 def test_addresses_card_links_to_the_address_book(client, customer, address):
     client.force_login(customer)
 
