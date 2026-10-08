@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Recovery codes — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-sm">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">New recovery codes</h1>
+        <p class="text-sm opacity-70">
+          You have {{ codes_left }} unused recovery code{{ codes_left|pluralize }} left.
+          Making a new set of ten replaces them all: every old code stops
+          working, used or not.
+        </p>
+
+        <form method="post" action="{% url 'accounts:recovery_codes' %}" class="mt-4 space-y-4">
+          {% csrf_token %}
+
+          {% for error in form.non_field_errors %}
+            <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+          {% endfor %}
+
+          {% for field in form %}
+            <div>
+              <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}
+                <div class="mt-1 text-xs opacity-60">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <p class="mt-1 text-sm text-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endfor %}
+
+          <div class="flex justify-end gap-2">
+            <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+            <button type="submit" class="btn btn-primary">Make new codes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

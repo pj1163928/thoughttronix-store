@@ -51,6 +51,14 @@ urlpatterns = [
         name="two_factor_settings",
     ),
     path(
+        "2fa/disable/", views.TwoFactorDisableView.as_view(), name="two_factor_disable"
+    ),
+    path(
+        "2fa/recovery-codes/",
+        views.RecoveryCodesView.as_view(),
+        name="recovery_codes",
+    ),
+    path(
         "sessions/sign-out-others/",
         views.SignOutOthersView.as_view(),
         name="sign_out_others",

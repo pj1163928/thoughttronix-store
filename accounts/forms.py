@@ -167,7 +167,12 @@ class ReauthenticationForm(AuthenticatorCodeMixin, forms.Form):
 
     A two-factor user who has asked for a code on security changes gets
     an "Authenticator code" field beside the password, and both must
-    match (see ``AuthenticatorCodeMixin``).
+    match (see ``AuthenticatorCodeMixin``). Any other two-factor user may
+    answer with either: the field becomes "Current password or
+    authenticator code", and ``accepts_code`` is set. An answer shaped
+    like a code is checked last, in ``clean``, once the rest of the form
+    is valid, for the same reason as the separate field: a right code
+    works once.
     """
 
     code_occasion = "security_changes"
@@ -188,6 +193,14 @@ class ReauthenticationForm(AuthenticatorCodeMixin, forms.Form):
             else:
                 field.widget.attrs["class"] = "input w-full"
         self.add_code_field()
+        self.accepts_code = (
+            "two_factor_code" not in self.fields and self.user.two_factor_enabled
+        )
+        self.code_deferred = False
+        if self.accepts_code:
+            answer = self.fields["current_password"]
+            answer.label = "Current password or authenticator code"
+            answer.help_text = "Or the six-digit code your authenticator app shows now."
         # Proof first, then the change, whatever order the fields were
         # declared in; a ``field_order`` still goes ahead of both.
         self.order_fields(
@@ -195,12 +208,36 @@ class ReauthenticationForm(AuthenticatorCodeMixin, forms.Form):
         )
 
     def clean_current_password(self):
-        password = self.cleaned_data["current_password"]
-        if security.confirm_identity(
-            self.user, password, purpose=self.purpose, request=self.request
+        answer = self.cleaned_data["current_password"]
+        if self.accepts_code and security.is_authenticator_code(answer):
+            self.code_deferred = True
+        else:
+            self.confirm_identity(answer)
+        return answer
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if self.code_deferred and not self.errors:
+            try:
+                self.confirm_identity(cleaned_data["current_password"])
+            except forms.ValidationError as error:
+                self.add_error("current_password", error)
+        return cleaned_data
+
+    def confirm_identity(self, answer):
+        if not security.confirm_identity(
+            self.user,
+            answer,
+            purpose=self.purpose,
+            accept_code=self.accepts_code,
+            request=self.request,
         ):
-            return password
-        raise _refusal(self.user, "That isn't your current password.", "wrong_password")
+            message = (
+                "That isn't your current password or a working code."
+                if self.accepts_code
+                else "That isn't your current password."
+            )
+            raise _refusal(self.user, message, "wrong_password")
 
 
 class PasswordChangeForm(SetPasswordMixin, ReauthenticationForm):
@@ -351,6 +388,25 @@ class SignOutDeviceForm(ReauthenticationForm):
     purpose = "sign_out_device"
 
 
+class RecoveryCodesForm(ReauthenticationForm):
+    """Only the current password: the page's whole job is to make new codes."""
+
+    purpose = "recovery_codes"
+
+
+class TwoFactorDisableForm(ReauthenticationForm):
+    """The current password and a code, both, whatever the account has chosen.
+
+    Turning two-factor off removes the protection the phone provides, so
+    the phone alone mustn't be enough, and neither must the password.
+    """
+
+    purpose = "two_factor_disable"
+
+    def asks_for_code(self):
+        return True
+
+
 class TwoFactorSetupForm(forms.Form):
     """A code from the authenticator app, proving setup worked.
 
@@ -448,8 +504,9 @@ class TwoFactorSettingsForm(ReauthenticationForm):
         label="With my password, for security changes",
         required=False,
         help_text=(
-            "Changing your password, username or email, and signing out "
-            "other devices, take your password and a code."
+            "Changing your password, username or email, signing out other "
+            "devices and replacing your recovery codes take your password "
+            "and a code."
         ),
     )
 

@@ -410,6 +410,12 @@ class TwoFactorDevice(models.Model):
         return f"Two-factor ({state}) — {self.user}"
 
 
+class RecoveryCodeQuerySet(models.QuerySet):
+    def unused(self):
+        """Codes that can still be used to sign in."""
+        return self.filter(used_at__isnull=True)
+
+
 class RecoveryCode(models.Model):
     """One single-use code for signing in without the authenticator app.
 
@@ -425,6 +431,8 @@ class RecoveryCode(models.Model):
     )
     code_hash = models.CharField(max_length=64)
     used_at = models.DateTimeField(null=True, blank=True)
+
+    objects = RecoveryCodeQuerySet.as_manager()
 
     def __str__(self):
         return f"Recovery code ({'used' if self.used_at else 'unused'}) — {self.user}"

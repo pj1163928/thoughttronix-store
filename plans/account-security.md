@@ -448,17 +448,27 @@ alert.
 
 ### Acceptance criteria
 
-- [ ] Each re-auth form (username, email, password, sign out others,
+- [x] Each re-auth form (username, email, password, sign out others,
       regenerate codes) accepts a valid current code in place of the
       password.
-- [ ] Re-auth refuses a recovery code and a code already used at sign-in
+- [x] Re-auth refuses a recovery code and a code already used at sign-in
       in the same time step.
-- [ ] Disable fails with only the password or only the code, and succeeds
+- [x] Disable fails with only the password or only the code, and succeeds
       with both.
-- [ ] A superuser can't disable two-factor. The page and its POST both
+- [x] A superuser can't disable two-factor. The page and its POST both
       refuse.
-- [ ] Regenerating invalidates every old code and shows exactly 10 new
+- [x] Regenerating invalidates every old code and shows exactly 10 new
       ones once.
+
+Built with three details the plan didn't spell out. An answer shaped like
+a code (six digits) is checked last, once the rest of the form is valid,
+so a typo elsewhere doesn't spend it, as the 2026-10-07 amendment already
+does for the separate code field. A wrong answer is recorded once, as a
+failed two-factor code if it was checked as one and as a failed sign-in
+otherwise. Signing out one device takes a code too, since it uses the
+same re-authentication form. The hub's Two-factor card now shows how many
+recovery codes are left and links to both pages, with "Turn off" hidden
+from superusers.
 
 ---
 

@@ -34,12 +34,14 @@ from .forms import (
     PasswordChangeForm,
     PasswordResetForm,
     ProfileForm,
+    RecoveryCodesForm,
     ResetPasswordForm,
     SignInCodeForm,
     SignInForm,
     SignOutDeviceForm,
     SignOutOthersForm,
     SignupForm,
+    TwoFactorDisableForm,
     TwoFactorSettingsForm,
     TwoFactorSetupForm,
 )
@@ -228,6 +230,8 @@ class AccountView(LoginRequiredMixin, FormView):
             two_factor_device=TwoFactorDevice.objects.confirmed()
             .filter(user=user)
             .first(),
+            two_factor_required=security.two_factor_required(user),
+            recovery_codes_left=user.recovery_codes.unused().count(),
             address_count=user.addresses.count(),
             user_sessions=user.user_sessions.active(),
             current_session_id=security.current_session_id(self.request),
@@ -520,18 +524,14 @@ class TwoFactorSetupView(LoginRequiredMixin, FormView):
         )
 
 
-class TwoFactorSettingsView(LoginRequiredMixin, FormView):
-    """Choose when to be asked for a code, besides signing in.
+class TwoFactorOnMixin(LoginRequiredMixin):
+    """For pages that manage two-factor: only for accounts with it on.
 
-    Only for accounts with two-factor on; anyone else is sent to their
-    Account page to set it up. Saving takes the current password and a
-    code (see ``TwoFactorSettingsForm``). Recording and the alert are
-    ``accounts.security``'s.
+    Anyone else is sent to their Account page with ``two_factor_off_message``.
+    The account's confirmed device is ``self.device``.
     """
 
-    form_class = TwoFactorSettingsForm
-    template_name = "accounts/two_factor_settings.html"
-    success_url = reverse_lazy("accounts:account")
+    two_factor_off_message = "Turn on two-factor authentication first."
 
     def dispatch(self, request, *args, **kwargs):
         if request.user.is_authenticated:
@@ -539,9 +539,22 @@ class TwoFactorSettingsView(LoginRequiredMixin, FormView):
                 TwoFactorDevice.objects.confirmed().filter(user=request.user).first()
             )
             if self.device is None:
-                messages.info(request, "Turn on two-factor authentication first.")
+                messages.info(request, self.two_factor_off_message)
                 return redirect("accounts:account")
         return super().dispatch(request, *args, **kwargs)
+
+
+class TwoFactorSettingsView(TwoFactorOnMixin, FormView):
+    """Choose when to be asked for a code, besides signing in.
+
+    Saving takes the current password and a code (see
+    ``TwoFactorSettingsForm``). Recording and the alert are
+    ``accounts.security``'s.
+    """
+
+    form_class = TwoFactorSettingsForm
+    template_name = "accounts/two_factor_settings.html"
+    success_url = reverse_lazy("accounts:account")
 
     def get_initial(self):
         return {
@@ -567,6 +580,78 @@ class TwoFactorSettingsView(LoginRequiredMixin, FormView):
             messages.success(self.request, "Two-factor settings saved.")
         else:
             messages.info(self.request, "Nothing changed.")
+        return super().form_valid(form)
+
+
+@method_decorator(never_cache, name="dispatch")
+class RecoveryCodesView(TwoFactorOnMixin, FormView):
+    """Replace the recovery codes with a new set, after the current password.
+
+    As with setup, success doesn't redirect: the new codes are rendered
+    into the response itself and can't be shown again, so nothing here
+    may be cached. Recording and the alert are ``accounts.security``'s.
+    """
+
+    form_class = RecoveryCodesForm
+    template_name = "accounts/recovery_codes.html"
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            codes_left=self.request.user.recovery_codes.unused().count(), **kwargs
+        )
+
+    def form_valid(self, form):
+        codes = security.regenerate_recovery_codes(
+            self.request.user, request=self.request
+        )
+        messages.success(self.request, "New recovery codes made.")
+        return render(
+            self.request,
+            "accounts/recovery_codes_issued.html",
+            {"codes": codes, "replaced": True},
+        )
+
+
+class TwoFactorDisableView(TwoFactorOnMixin, FormView):
+    """Turn two-factor off, after the current password and a code.
+
+    Superusers are refused, the page and its POST alike: two-factor is
+    mandatory for them. Removing the device and codes, recording and the
+    alert are ``accounts.security``'s.
+    """
+
+    form_class = TwoFactorDisableForm
+    template_name = "accounts/two_factor_disable.html"
+    success_url = reverse_lazy("accounts:account")
+    two_factor_off_message = "Two-factor authentication is already off."
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and security.two_factor_required(request.user):
+            messages.error(
+                request,
+                "Two-factor authentication is required for administrator "
+                "accounts, so it can't be turned off.",
+            )
+            return redirect("accounts:account")
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        return {
+            **super().get_form_kwargs(),
+            "user": self.request.user,
+            "request": self.request,
+        }
+
+    def form_valid(self, form):
+        security.disable_two_factor(self.request.user, request=self.request)
+        messages.success(self.request, "Two-factor authentication is off.")
         return super().form_valid(form)
 
 

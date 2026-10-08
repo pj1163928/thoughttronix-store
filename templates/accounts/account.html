@@ -101,9 +101,17 @@
             <li>Asked for at every sign-in</li>
             <li>{% if two_factor_device.ask_at_checkout %}Asked for{% else %}Not asked for{% endif %} when you place an order</li>
             <li>{% if two_factor_device.ask_for_security_changes %}Asked for{% else %}Not asked for{% endif %} on security changes</li>
+            <li class="{% if recovery_codes_left < 3 %}text-warning{% endif %}">{{ recovery_codes_left }} unused recovery code{{ recovery_codes_left|pluralize }} left</li>
           </ul>
+          {% if two_factor_required %}
+            <p class="text-xs opacity-60">Required for administrator accounts.</p>
+          {% endif %}
           <div class="card-actions mt-auto justify-end pt-2">
-            <a href="{% url 'accounts:two_factor_settings' %}" class="btn btn-ghost btn-sm">Two-factor settings</a>
+            <a href="{% url 'accounts:two_factor_settings' %}" class="btn btn-ghost btn-sm">Settings</a>
+            <a href="{% url 'accounts:recovery_codes' %}" class="btn btn-ghost btn-sm">New recovery codes</a>
+            {% if not two_factor_required %}
+              <a href="{% url 'accounts:two_factor_disable' %}" class="btn btn-ghost btn-sm text-error">Turn off</a>
+            {% endif %}
           </div>
         {% else %}
           <p class="text-sm">
@@ -144,7 +152,7 @@
       <span class="text-primary">{% include "accounts/partials/_icon.html" with name="bolt" delay="0.2" only %}</span>
       Actions
     </h2>
-    <p class="mt-1 text-sm opacity-70">Each one asks for your current password first{% if two_factor_device.ask_for_security_changes %}, and a code from your authenticator app{% endif %}.</p>
+    <p class="mt-1 text-sm opacity-70">Each one asks for your current password first{% if two_factor_device.ask_for_security_changes %}, and a code from your authenticator app{% elif two_factor_device %}, or a code from your authenticator app{% endif %}.</p>
 
     <div class="mt-4 grid gap-4 sm:grid-cols-3">
       <a href="{% url 'accounts:password_change' %}" class="group card bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">

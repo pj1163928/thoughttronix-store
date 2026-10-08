@@ -30,6 +30,80 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 13: managing two-factor
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 13"
+2. "append this conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 13 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The security module.** `confirm_identity` gained `accept_code`. It
+    tries the password first, then, if the answer looks like a code, an
+    authenticator code through the same replay check as sign-in. It
+    records one failure either way: a failed two-factor code if it was
+    checked as a code, otherwise a failed sign-in. New functions:
+    - `is_authenticator_code`: a shape check that `verify_code` now
+      shares.
+    - `two_factor_required`: true for superusers, for phase 14's gate to
+      reuse.
+    - `disable_two_factor`: deletes the device, its choices and every
+      recovery code, records the event and sends an alert. It refuses
+      superusers.
+    - `regenerate_recovery_codes`.
+    `RecoveryCode` gained a `RecoveryCodeQuerySet.unused()` manager,
+    which needs no migration.
+  - **The forms.** For a two-factor user, `ReauthenticationForm` relabels
+    its field "Current password or authenticator code", unless the
+    security-changes choice is on (then the separate code field stays).
+    A code-shaped answer is checked last, in `clean`, once the rest of
+    the form is valid. New forms: `RecoveryCodesForm`, and
+    `TwoFactorDisableForm`, which always asks for both password and code.
+  - **The views.** A `TwoFactorOnMixin` was pulled out of
+    `TwoFactorSettingsView` and is shared by:
+    - `RecoveryCodesView` at `/accounts/2fa/recovery-codes/`. It is
+      `never_cache` and renders the new codes straight into the POST
+      response, as setup does.
+    - `TwoFactorDisableView` at `/accounts/2fa/disable/`. It turns
+      superusers away on GET and POST alike.
+  - **The hub.** The Two-factor card shows how many recovery codes are
+    left and links to Settings, New recovery codes and Turn off.
+    Superusers see "Required for administrator accounts." in place of
+    Turn off. The Actions blurb mentions the code alternative.
+  - **Tests.** `accounts/test_two_factor_management.py` has 41 tests,
+    and all passed on the first run. Every re-auth form is parametrized
+    with a code and with the password. Replay is tested with a code
+    spent through the real two-step sign-in. The full suite reached 937
+    passing, ruff is clean, and `makemigrations --check` found nothing.
+
+- **Deviations:**
+  - No questions were asked. These choices were made and reported, then
+    noted under phase 13 in the plan:
+    - Code-shaped answers are checked last, extending the earlier
+      amendment's "a typo elsewhere doesn't spend the code" rule to the
+      either-or field.
+    - A wrong answer is recorded as a code failure or a sign-in failure
+      according to how it was checked.
+    - Signing out one device also accepts a code, because it shares the
+      form.
+    - The recovery-codes count and links were added to the hub.
+  - The `ask_for_security_changes` help text now lists replacing
+    recovery codes.
+  - Nothing was committed or opened in a browser.
+
+- **Sideways:**
+  - **Waiting on the suite.** The full suite ran in the background.
+    Twice, a foreground wait for it was backgrounded by the user, so the
+    first reply reported only the 41 new tests and said the full run was
+    still going. Its result, 937 passed in 6m26s, was read back while
+    this entry was being written. A redundant second run started then
+    too.
+  - **Formatting.** `ruff format` reformatted `accounts/views.py` after
+    the edits, which was formatting only.
+
 ## 2026-10-07 — Account security, Phase 12: two-step sign-in
 
 ### Prompts

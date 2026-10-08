@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Turn off two-factor — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-sm">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Turn off two-factor?</h1>
+        <p class="text-sm opacity-70">
+          Signing in will take only your password. Your recovery codes stop
+          working, and so do your choices of when else to be asked for a code.
+        </p>
+
+        <div class="alert alert-warning mt-2" role="alert">
+          {% include "accounts/partials/_icon.html" with name="warning" only %}
+          <span>
+            A stolen password will be enough to get into your account.
+          </span>
+        </div>
+
+        <form method="post" action="{% url 'accounts:two_factor_disable' %}" class="mt-4 space-y-4">
+          {% csrf_token %}
+
+          {% for error in form.non_field_errors %}
+            <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+          {% endfor %}
+
+          <p class="text-sm opacity-70">To turn it off, confirm it's you with your password and a code.</p>
+
+          {% for field in form %}
+            <div>
+              <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}
+                <div class="mt-1 text-xs opacity-60">{{ field.help_text }}</div>
+              {% endif %}
+              {% for error in field.errors %}
+                <p class="mt-1 text-sm text-error">{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endfor %}
+
+          <div class="flex justify-end gap-2">
+            <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Keep it on</a>
+            <button type="submit" class="btn btn-error">Turn off two-factor</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+{% endblock %}

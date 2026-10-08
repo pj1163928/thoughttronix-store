@@ -14,8 +14,9 @@ signed-in devices that lets one be signed out at a time, the signed
 links that verify an email address, those that confirm a new one, the
 record of a forgotten password being reset, and two-factor: the
 authenticator secret and its QR code, checking codes, recovery codes,
-the code step of signing in, and the owner's choice to be asked for a
-code at checkout and on security changes.
+the code step of signing in, a code in place of the password as proof,
+replacing recovery codes and turning two-factor off, and the owner's
+choice to be asked for a code at checkout and on security changes.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -382,25 +383,39 @@ def _pause_earned(
 
 def confirm_identity(
     user: User,
-    password: str,
+    answer: str,
     *,
     purpose: str,
+    accept_code: bool = False,
     request: HttpRequest | None = None,
     at: datetime | None = None,
 ) -> bool:
-    """Whether ``password`` proves the signed-in ``user`` is who they say.
+    """Whether ``answer`` proves the signed-in ``user`` is who they say.
+
+    ``answer`` is the current password. With ``accept_code``, a fresh code
+    from the account's authenticator app passes too: the password is
+    tried first, then, if ``answer`` looks like a code, the code, through
+    the same replay check as sign-in. Recovery codes never pass; they are
+    for signing in.
 
     While the account is paused, refuses without checking and without
-    recording, exactly as sign-in does. Otherwise a wrong password is
-    recorded as a failed sign-in, with ``purpose`` (a short label such as
-    ``"password_change"``) in its details, and may start a pause.
+    recording, exactly as sign-in does. Otherwise a wrong answer is
+    recorded once, with ``purpose`` (a short label such as
+    ``"password_change"``) in its details, and may start a pause. It is
+    recorded as a failed two-factor code when it was checked as one, and
+    as a failed sign-in otherwise.
     """
     if is_cooling_down(user, now=at):
         return False
-    if user.check_password(password):
+    if user.check_password(answer):
         return True
+    as_code = accept_code and is_authenticator_code(answer)
+    if as_code:
+        device = TwoFactorDevice.objects.confirmed().filter(user=user).first()
+        if device is not None and verify_code(device, answer, at=at):
+            return True
     record_failure(
-        Kind.SIGN_IN_FAILED,
+        Kind.TWO_FACTOR_CODE_FAILED if as_code else Kind.SIGN_IN_FAILED,
         user,
         request=request,
         at=at,
@@ -1005,6 +1020,17 @@ def setup_key(device: TwoFactorDevice) -> str:
     return " ".join(device.secret[i : i + 4] for i in range(0, len(device.secret), 4))
 
 
+def is_authenticator_code(answer: str) -> bool:
+    """Whether ``answer`` has the shape of an authenticator code: six digits.
+
+    Spaces are ignored. It says nothing about whether the code is right;
+    it lets a form tell a code from a password before deciding when to
+    check it, since checking a right code spends it.
+    """
+    answer = "".join(answer.split())
+    return len(answer) == 6 and answer.isdigit()
+
+
 def verify_code(
     device: TwoFactorDevice, code: str, *, at: datetime | None = None
 ) -> bool:
@@ -1020,9 +1046,9 @@ def verify_code(
     This only answers the question. Counting a wrong code toward the
     cooldown is the caller's decision.
     """
-    code = "".join(code.split())
-    if len(code) != 6 or not code.isdigit():
+    if not is_authenticator_code(code):
         return False
+    code = "".join(code.split())
     totp = pyotp.TOTP(device.secret)
     now_step = totp.timecode(at or timezone.now())
     matched = None
@@ -1090,6 +1116,85 @@ def generate_recovery_codes(user: User) -> list[str]:
             RecoveryCode(user=user, code_hash=_hash_recovery_code(code))
             for code in codes
         )
+    return codes
+
+
+# --- Managing two-factor ----------------------------------------------------------
+#
+# Once two-factor is on, its owner can replace their recovery codes or turn
+# it off. Turning it off is the one change that takes both the password
+# and a code, so someone holding only the unlocked phone, or only the
+# password, can't remove the protection. Superusers can't turn it off at
+# all: two-factor is mandatory for the accounts that can do anything.
+
+
+def two_factor_required(user: User) -> bool:
+    """Whether ``user`` must keep two-factor on: every superuser must."""
+    return user.is_superuser
+
+
+def disable_two_factor(
+    user: User,
+    *,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Turn two-factor off for ``user``, and tell them.
+
+    Call once the caller has checked both the password and a code. The
+    device goes, and with it the owner's choices of when to be asked for a
+    code; every recovery code goes too. The event is recorded and the
+    owner emailed. Refused, changing and recording nothing, for an account
+    that must keep two-factor (see ``two_factor_required``) or doesn't
+    have it on. Returns whether two-factor was turned off.
+    """
+    if two_factor_required(user) or not user.two_factor_enabled:
+        return False
+    at = at or timezone.now()
+    with transaction.atomic():
+        TwoFactorDevice.objects.filter(user=user).delete()
+        user.recovery_codes.all().delete()
+    record_event(Kind.TWO_FACTOR_DISABLED, user, actor=user, request=request, at=at)
+    send_alert(
+        user,
+        "Two-factor authentication was turned off",
+        (
+            "Two-factor authentication was turned off for your ThoughtTronix "
+            "account. Signing in now takes only your password, and your "
+            "recovery codes no longer work."
+        ),
+        at=at,
+    )
+    return True
+
+
+def regenerate_recovery_codes(
+    user: User,
+    *,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> list[str]:
+    """Replace ``user``'s recovery codes, tell them, and return the new set.
+
+    Call once the caller has checked it's them; ``user`` must have
+    two-factor on. Every old code stops working, used or not. The ten new
+    ones are returned in plain text for the caller to show once (see
+    ``generate_recovery_codes``).
+    """
+    at = at or timezone.now()
+    codes = generate_recovery_codes(user)
+    record_event(
+        Kind.RECOVERY_CODES_REGENERATED, user, actor=user, request=request, at=at
+    )
+    send_alert(
+        user,
+        "Your recovery codes were replaced",
+        (
+            "A new set of ten recovery codes was made for your ThoughtTronix "
+            "account. Your old recovery codes no longer work."
+        ),
+        at=at,
+    )
     return codes
 
 
@@ -1234,7 +1339,7 @@ def use_recovery_code(
     ).update(used_at=at)
     if not claimed:
         return False
-    remaining = user.recovery_codes.filter(used_at__isnull=True).count()
+    remaining = user.recovery_codes.unused().count()
     record_event(
         Kind.RECOVERY_CODE_USED,
         user,
