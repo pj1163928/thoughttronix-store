@@ -63,6 +63,8 @@ urlpatterns = [
     ),
     path("signup/", views.SignupView.as_view(), name="signup"),
     path("login/", views.SignInView.as_view(), name="login"),
+    # Only while a password has passed and a code is still owed.
+    path("login/verify/", views.SignInCodeView.as_view(), name="login_verify"),
     path("logout/", views.SignOutView.as_view(), name="logout"),
     # The address book — a customer's own pages, so pks rather than slugs.
     path("addresses/", views.AddressListView.as_view(), name="addresses"),

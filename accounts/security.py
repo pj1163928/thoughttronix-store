@@ -12,10 +12,10 @@ guards every sensitive change, with the password change, the username
 change and "sign out of all other devices" it guards, the list of
 signed-in devices that lets one be signed out at a time, the signed
 links that verify an email address, those that confirm a new one, the
-record of a forgotten password being reset, and two-factor setup: the
+record of a forgotten password being reset, and two-factor: the
 authenticator secret and its QR code, checking codes, recovery codes,
-and the owner's choice to be asked for a code at checkout and on
-security changes.
+the code step of signing in, and the owner's choice to be asked for a
+code at checkout and on security changes.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -302,9 +302,22 @@ def note_refused_sign_in(
     The identifier is kept only as a keyed hash, because people type
     their password into the username box.
     """
-    now = now or timezone.now()
+    return _note_refusal(session, _identifier_key(identifier), now or timezone.now())
+
+
+def forget_sign_in_attempts(session: SessionBase) -> None:
+    """Clear this browser's sign-in history, as a successful sign-in does."""
+    session.pop(SESSION_KEY, None)
+
+
+def _identifier_key(identifier: str) -> str:
+    return salted_hmac(
+        "accounts.security.sign_in_attempts", identifier.casefold()
+    ).hexdigest()
+
+
+def _note_refusal(session: SessionBase, key: str, now: datetime) -> Standing:
     log = dict(session.get(SESSION_KEY, {}))
-    key = _identifier_key(identifier)
     entry = log.pop(key, {"failures": [], "pauses": []})
     failures = [datetime.fromisoformat(at) for at in entry["failures"]]
     pauses = [Pause(datetime.fromisoformat(at), m) for at, m in entry["pauses"]]
@@ -325,17 +338,6 @@ def note_refused_sign_in(
     # Newest last, so the oldest identifier is the one forgotten first.
     session[SESSION_KEY] = dict(list(log.items())[-SESSION_IDENTIFIERS:])
     return _standing(failures, pauses, now)
-
-
-def forget_sign_in_attempts(session: SessionBase) -> None:
-    """Clear this browser's sign-in history, as a successful sign-in does."""
-    session.pop(SESSION_KEY, None)
-
-
-def _identifier_key(identifier: str) -> str:
-    return salted_hmac(
-        "accounts.security.sign_in_attempts", identifier.casefold()
-    ).hexdigest()
 
 
 # --- The rule itself ---------------------------------------------------------------
@@ -532,8 +534,10 @@ def start_session(request: HttpRequest, user: User) -> UserSession:
 
     Called on every sign-in. A browser signing in again replaces its own
     old row rather than appearing twice, and the account's expired rows
-    are cleared out while we're here.
+    are cleared out while we're here. Any half-finished two-factor
+    sign-in in this browser is dropped: it has been finished or abandoned.
     """
+    cancel_two_factor_sign_in(request.session)
     now = timezone.now()
     user.user_sessions.expired(now).delete()
     previous = request.session.get(USER_SESSION_KEY)
@@ -1087,6 +1091,170 @@ def generate_recovery_codes(user: User) -> list[str]:
             for code in codes
         )
     return codes
+
+
+# --- Signing in with two-factor ---------------------------------------------------
+#
+# For an account with two-factor on, a correct password is only step 1.
+# It signs nobody in: the browser's session is given a note that the
+# account passed step 1 and when, and step 2 asks for a code. Only a
+# working code turns that note into a real sign-in. The note lasts five
+# minutes and survives five wrong codes, whichever runs out first.
+#
+# A wrong code is a failure like a wrong password, counted toward the same
+# cooldown on the account and the same history in the browser, so going
+# back to the password step never buys fresh code guesses.
+
+PENDING_SIGN_IN_KEY = "pending_sign_in"
+PENDING_SIGN_IN_MAX_AGE = timedelta(minutes=5)
+SIGN_IN_CODE_ATTEMPTS = 5
+
+
+def begin_two_factor_sign_in(
+    session: SessionBase, user: User, identifier: str, *, at: datetime | None = None
+) -> None:
+    """Note in ``session`` that ``user`` has passed the password step.
+
+    Call instead of signing in when ``user`` has two-factor on; the user
+    stays signed out until ``check_sign_in_code`` accepts a code. The note
+    holds the account, the time, the account's session auth hash (so a
+    password change or "sign out of all other devices" in between kills
+    it) and a keyed hash of ``identifier``, what was typed at step 1, so
+    wrong codes count in this browser's history against the same entry
+    as wrong passwords. Never the identifier itself.
+
+    A note already in the session, for any account, is replaced.
+    """
+    session[PENDING_SIGN_IN_KEY] = {
+        "user": user.pk,
+        "at": (at or timezone.now()).isoformat(),
+        "auth_hash": user.get_session_auth_hash(),
+        "attempts_key": _identifier_key(identifier),
+        "failures": 0,
+    }
+
+
+def pending_sign_in_user(
+    session: SessionBase, *, now: datetime | None = None
+) -> User | None:
+    """The account waiting at step 2 in ``session``, or ``None`` if there isn't one.
+
+    The note is dropped, and ``None`` returned, once it is more than five
+    minutes old, or when the account has since been locked, deleted, had
+    its password changed or its other sessions signed out, or no longer
+    has two-factor on. ``now`` defaults to the current time; tests pass a
+    fixed one.
+    """
+    pending = session.get(PENDING_SIGN_IN_KEY)
+    if pending is None:
+        return None
+    now = now or timezone.now()
+    started = datetime.fromisoformat(pending["at"])
+    user = User.objects.filter(pk=pending["user"], is_active=True).first()
+    if (
+        now - started > PENDING_SIGN_IN_MAX_AGE
+        or user is None
+        or not hmac.compare_digest(user.get_session_auth_hash(), pending["auth_hash"])
+        or not user.two_factor_enabled
+    ):
+        cancel_two_factor_sign_in(session)
+        return None
+    return user
+
+
+def cancel_two_factor_sign_in(session: SessionBase) -> None:
+    """Drop any half-finished sign-in in ``session``; the next try starts at step 1."""
+    session.pop(PENDING_SIGN_IN_KEY, None)
+
+
+def check_sign_in_code(
+    request: HttpRequest, code: str, *, at: datetime | None = None
+) -> User | None:
+    """Step 2: the account ``code`` signs in, or ``None`` if it signs in nobody.
+
+    ``code`` is either a fresh authenticator code (see ``verify_code``) or
+    an unused recovery code (see ``use_recovery_code``). On success the
+    half-finished sign-in is cleared and its account returned, for the
+    caller to sign in with ``django.contrib.auth.login``.
+
+    A wrong code is recorded as a failed two-factor code and counted in
+    this browser's history. The fifth wrong code discards the
+    half-finished sign-in, as does the account being paused, so the user
+    starts again from the password; while the account is paused no code is
+    checked or recorded at all, exactly as for a password. ``at``
+    defaults to now; tests pass a fixed one.
+    """
+    at = at or timezone.now()
+    session = request.session
+    user = pending_sign_in_user(session, now=at)
+    if user is None:
+        return None
+    if is_cooling_down(user, now=at):
+        cancel_two_factor_sign_in(session)
+        return None
+    device = TwoFactorDevice.objects.confirmed().get(user=user)
+    if verify_code(device, code, at=at) or use_recovery_code(
+        user, code, request=request, at=at
+    ):
+        cancel_two_factor_sign_in(session)
+        return user
+
+    record_failure(Kind.TWO_FACTOR_CODE_FAILED, user, request=request, at=at)
+    pending = dict(session[PENDING_SIGN_IN_KEY])
+    pending["failures"] += 1
+    session[PENDING_SIGN_IN_KEY] = pending
+    _note_refusal(session, pending["attempts_key"], at)
+    if pending["failures"] >= SIGN_IN_CODE_ATTEMPTS or is_cooling_down(user, now=at):
+        cancel_two_factor_sign_in(session)
+    return None
+
+
+def use_recovery_code(
+    user: User,
+    code: str,
+    *,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Spend one of ``user``'s recovery codes, if ``code`` is one; tell them if so.
+
+    Each code works once: it is marked used atomically, so two requests
+    racing with the same code can't both succeed. Case and the dash are
+    ignored. A code that works records the event, with how many are left
+    in ``details``, and emails the owner, since a recovery code being used
+    by someone else means they have the owner's password and the paper the
+    codes were written on.
+
+    Only sign-in accepts recovery codes. A form asking "prove it's you"
+    takes an authenticator code (see ``confirm_code``).
+    """
+    at = at or timezone.now()
+    claimed = RecoveryCode.objects.filter(
+        user=user, code_hash=_hash_recovery_code(code), used_at__isnull=True
+    ).update(used_at=at)
+    if not claimed:
+        return False
+    remaining = user.recovery_codes.filter(used_at__isnull=True).count()
+    record_event(
+        Kind.RECOVERY_CODE_USED,
+        user,
+        actor=user,
+        request=request,
+        details={"remaining": remaining},
+        at=at,
+    )
+    send_alert(
+        user,
+        "A recovery code was used to sign in",
+        (
+            f"One of the recovery codes for your ThoughtTronix account was "
+            f"used to sign in, in place of a code from your authenticator "
+            f"app. It can't be used again, and {remaining} of your recovery "
+            f"codes {'is' if remaining == 1 else 'are'} left."
+        ),
+        at=at,
+    )
+    return True
 
 
 # --- Asking for a code beyond sign-in -------------------------------------------

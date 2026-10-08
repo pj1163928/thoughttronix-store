@@ -1,17 +1,22 @@
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import REDIRECT_FIELD_NAME, login
 from django.contrib.auth import views as auth_views
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth.views import LoginView, LogoutView
+from django.contrib.auth.views import LoginView, LogoutView, RedirectURLMixin
 from django.contrib.auth.views import PasswordChangeView as DjangoPasswordChangeView
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import NON_FIELD_ERRORS
+from django.http import HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.template.defaultfilters import pluralize
+from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.utils.safestring import mark_safe
 from django.views import View
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.debug import sensitive_post_parameters
 from django.views.generic import (
     CreateView,
     DeleteView,
@@ -30,6 +35,7 @@ from .forms import (
     PasswordResetForm,
     ProfileForm,
     ResetPasswordForm,
+    SignInCodeForm,
     SignInForm,
     SignOutDeviceForm,
     SignOutOthersForm,
@@ -67,18 +73,39 @@ class SignupView(SuccessMessageMixin, CreateView):
         return response
 
 
+def _with_next(url, next_url):
+    """``url``, carrying ``next_url`` along as ``?next=`` when there is one."""
+    if not next_url:
+        return url
+    query = QueryDict(mutable=True)
+    query[REDIRECT_FIELD_NAME] = next_url
+    return f"{url}?{query.urlencode(safe='/')}"
+
+
 class SignInView(LoginView):
     """Sign in, and say how many attempts are left after a refusal.
 
     The count shown is this browser's, kept by ``accounts.security``
     against whatever was typed. It is never the account's own, which
     would tell a stranger which usernames exist.
+
+    For an account with two-factor on, a correct password is only step 1:
+    nobody is signed in, and the browser goes on to ``SignInCodeView``
+    with ``next`` carried along.
     """
 
     template_name = "accounts/login.html"
     authentication_form = SignInForm
 
     def form_valid(self, form):
+        user = form.get_user()
+        if user.two_factor_enabled:
+            security.begin_two_factor_sign_in(
+                self.request.session, user, form.cleaned_data["username"]
+            )
+            return HttpResponseRedirect(
+                _with_next(reverse("accounts:login_verify"), self.get_redirect_url())
+            )
         security.forget_sign_in_attempts(self.request.session)
         return super().form_valid(form)
 
@@ -91,6 +118,72 @@ class SignInView(LoginView):
         return self.render_to_response(
             self.get_context_data(form=form, standing=standing)
         )
+
+
+@method_decorator(
+    [sensitive_post_parameters("code"), csrf_protect, never_cache], name="dispatch"
+)
+class SignInCodeView(RedirectURLMixin, FormView):
+    """Step 2 of signing in: a code, for an account that passed the password.
+
+    Reachable only while ``accounts.security`` holds a half-finished
+    sign-in for this browser; otherwise, or once it has timed out, the
+    browser is sent back to the password. A working code signs in and
+    follows ``next`` exactly as the password page would have.
+
+    The person here has already given the right password, so after a
+    wrong code they may be told how many tries are left before sign-in
+    pauses, and that it has paused; the password page never says so.
+    """
+
+    form_class = SignInCodeForm
+    template_name = "accounts/login_verify.html"
+    next_page = settings.LOGIN_REDIRECT_URL
+
+    def dispatch(self, request, *args, **kwargs):
+        self.pending_user = security.pending_sign_in_user(request.session)
+        if self.pending_user is None:
+            messages.info(request, "That sign-in timed out. Enter your password again.")
+            return self.back_to_password()
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        return {**super().get_form_kwargs(), "request": self.request}
+
+    def get_context_data(self, **kwargs):
+        return super().get_context_data(
+            next=self.get_redirect_url(), password_url=self.password_url(), **kwargs
+        )
+
+    def form_valid(self, form):
+        login(self.request, form.user)
+        security.forget_sign_in_attempts(self.request.session)
+        return HttpResponseRedirect(self.get_success_url())
+
+    def form_invalid(self, form):
+        standing = security.sign_in_standing(self.pending_user)
+        if security.pending_sign_in_user(self.request.session) is None:
+            if standing.paused_until:
+                minutes = standing.paused_minutes
+                messages.error(
+                    self.request,
+                    f"Too many failed attempts. Sign-in is paused — try again in "
+                    f"{minutes} minute{pluralize(minutes)}.",
+                )
+            else:
+                messages.error(
+                    self.request, "Too many wrong codes. Enter your password again."
+                )
+            return self.back_to_password()
+        return self.render_to_response(
+            self.get_context_data(form=form, standing=standing)
+        )
+
+    def password_url(self):
+        return _with_next(reverse("accounts:login"), self.get_redirect_url())
+
+    def back_to_password(self):
+        return HttpResponseRedirect(self.password_url())
 
 
 class SignOutView(LogoutView):

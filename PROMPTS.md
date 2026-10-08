@@ -30,6 +30,84 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-07 — Account security, Phase 12: two-step sign-in
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 12"
+2. "how can I test this in browser"
+3. "append conversations to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 12 of `plans/account-security.md`
+  and ticked its eight acceptance criteria:
+  - **The security module.** `accounts/security.py` gained
+    `begin_two_factor_sign_in`, `pending_sign_in_user`,
+    `cancel_two_factor_sign_in`, `check_sign_in_code` and
+    `use_recovery_code`.
+    - Step 1 puts a note in the session: the account, the time, the
+      account's session auth hash, a keyed hash of what was typed, and a
+      count of wrong codes. It never stores the identifier itself, and
+      the user is not signed in.
+    - The note dies after 5 minutes. It also dies if the account is
+      locked or deleted, changes its password, signs out its other
+      devices, or loses two-factor.
+    - A wrong code is recorded as `2fa_code_failed`. It counts toward
+      the account's cooldown and toward this browser's attempt history,
+      against the same entry as a wrong password. The fifth wrong code,
+      or the account pausing, drops the note. While the account is
+      paused, no code is checked and nothing is recorded.
+    - A recovery code is spent with a conditional `UPDATE`. Using one
+      records `recovery_code_used` with how many are left and emails the
+      owner.
+    - `note_refused_sign_in` was split so that step 2 can count into the
+      same browser history. `start_session` now drops any half-finished
+      sign-in.
+  - **The pages.** `SignInView` sends two-factor users to
+    `/accounts/login/verify/` instead of signing them in.
+    `SignInCodeView` (`RedirectURLMixin` + `FormView`, `never_cache`,
+    `sensitive_post_parameters`) takes one "Authenticator or recovery
+    code" field, carries `next` through both steps, and says how many
+    attempts are left after a wrong code.
+  - **Tests.** `accounts/test_two_step_sign_in.py`, with the rules
+    tested on a pinned clock. The suite went from 853 to 896 passing,
+    and ruff is clean.
+
+  Prompt 2 got step-by-step browser checks: setup, two-step sign-in, a
+  replayed code, a recovery code, five wrong codes, `next`, the admin,
+  the timeout, and running `seed` before committing. The answer was
+  written, not run.
+
+- **Deviations:**
+  - **One change the plan didn't list.** Django's `/admin/login/` signs
+    in on the password alone, so a two-factor user could have skipped
+    step 2 there. It now redirects to the store's sign-in page, keeping
+    `next` (`config/urls.py`, named `admin_login`). The plan gained a note
+    saying so.
+  - **Three existing tests changed.** They posted straight to
+    `admin:login`, in `test_sign_in.py`, `test_cooldown.py` and
+    `test_security_events.py`. They now sign in through the store's page
+    with `next=/admin/`. Two new tests cover the redirect.
+  - **No questions were asked.** These defaults were taken:
+    - The step-2 page may say how many attempts are left, and that
+      sign-in has paused, because the person there has already given the
+      right password.
+    - Messages for a missing or expired step 2 read "timed out".
+  - Nothing was committed or opened in a browser.
+
+- **Sideways:**
+  - **A test helper swallowed `follow=True`** into the POST data, so one
+    test read `redirect_chain` off a plain redirect. The helpers now take
+    `follow` as a keyword argument.
+  - **An assertion expected `?next=/admin/`,** but the admin itself
+    percent-encodes it as `%2Fadmin%2F`. The test now checks the decoded
+    `next` in the page context.
+  - **The first version of `_with_next` used `urlencode`,** which
+    encodes `/`. Before any test ran, it was switched to
+    `QueryDict.urlencode(safe="/")`, as Django's `redirect_to_login`
+    does.
+
 ## 2026-10-07 — Account security, Phase 11: two-factor enrolment, plus asking for a code at checkout and on security changes
 
 ### Prompts

@@ -344,13 +344,20 @@ def test_a_successful_sign_in_resets_the_count(client, casey):
     assert signed_in(client)
 
 
-def test_the_cooldown_applies_to_the_admin_sign_in_too(client, db):
+def test_the_cooldown_applies_on_the_way_to_the_admin_too(client, db):
+    # The admin's sign-in page redirects to the store's, so there is no
+    # second door with a cooldown of its own.
     User.objects.create_superuser(username="admin", password="admin-pass-123")
+    admin_url = reverse("admin:index")
     for _ in range(5):
-        client.post(reverse("admin:login"), {"username": "admin", "password": "x"})
+        client.post(
+            reverse("accounts:login"),
+            {"username": "admin", "password": "x", "next": admin_url},
+        )
 
     client.post(
-        reverse("admin:login"), {"username": "admin", "password": "admin-pass-123"}
+        reverse("accounts:login"),
+        {"username": "admin", "password": "admin-pass-123", "next": admin_url},
     )
 
     assert not signed_in(client)

@@ -153,12 +153,38 @@ def test_staff_can_sign_in_to_the_admin_by_email(client, db):
     )
 
     response = client.post(
-        reverse("admin:login"),
-        {"username": "ADMIN@example.com", "password": "admin-pass-123"},
+        reverse("accounts:login"),
+        {
+            "username": "ADMIN@example.com",
+            "password": "admin-pass-123",
+            "next": reverse("admin:index"),
+        },
     )
 
     assert response.status_code == 302
+    assert response.url == reverse("admin:index")
     assert client.get(reverse("admin:index")).status_code == 200
+
+
+def test_the_admin_sign_in_page_sends_you_to_the_stores(client, db):
+    # The admin's own page signs in on a password alone, which would skip
+    # the two-factor code step.
+    response = client.get(reverse("admin:index"), follow=True)
+
+    assert response.request["PATH_INFO"] == reverse("accounts:login")
+    assert response.context["next"] == reverse("admin:index")
+    assert "accounts/login.html" in [t.name for t in response.templates]
+
+
+def test_posting_to_the_admin_sign_in_page_signs_nobody_in(client, db):
+    User.objects.create_superuser(username="admin", password="admin-pass-123")
+
+    client.post(
+        reverse("admin:login"), {"username": "admin", "password": "admin-pass-123"}
+    )
+
+    assert "_auth_user_id" not in client.session
+    assert not SecurityEvent.objects.exists()
 
 
 def test_a_signed_in_session_survives_the_next_request(client, casey):

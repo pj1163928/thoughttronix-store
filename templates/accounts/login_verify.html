@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Enter your code — The ThoughtTronix Store{% endblock %}
+
+{% block content %}
+  <div class="mx-auto max-w-sm">
+    <div class="card bg-base-100 shadow-md">
+      <div class="card-body">
+        <h1 class="card-title text-2xl">Enter your code</h1>
+        <p class="text-sm opacity-70">
+          Your account has two-factor authentication on. Open your
+          authenticator app and enter the code it shows for ThoughtTronix.
+        </p>
+
+        <form method="post" action="{% url 'accounts:login_verify' %}" class="mt-4 space-y-4">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next }}" />
+
+          {% for error in form.non_field_errors %}
+            <div class="alert alert-error" role="alert"><span>{{ error }}</span></div>
+          {% endfor %}
+
+          {% for field in form %}
+            <div>
+              <label class="label mb-1" for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% for error in field.errors %}
+                <p class="mt-1 text-sm text-error">{{ error }}</p>
+              {% endfor %}
+              {% if field.help_text %}
+                <p class="mt-1 text-xs opacity-60">{{ field.help_text }}</p>
+              {% endif %}
+            </div>
+          {% endfor %}
+
+          {% if standing and not standing.paused_until %}
+            <p class="text-sm text-warning" role="status">
+              {{ standing.attempts_left }} attempt{{ standing.attempts_left|pluralize }} left before sign-in pauses for {{ standing.next_pause_minutes }} minutes.
+            </p>
+          {% endif %}
+
+          <button type="submit" class="btn btn-primary w-full">Sign in</button>
+        </form>
+
+        <p class="mt-4 text-center text-sm opacity-70">
+          Lost your phone? Enter one of your recovery codes instead. Each one works once.
+        </p>
+        <p class="mt-2 text-center text-sm">
+          <a href="{{ password_url }}" class="link link-primary">Start again</a>
+        </p>
+      </div>
+    </div>
+  </div>
+{% endblock %}

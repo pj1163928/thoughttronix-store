@@ -389,6 +389,45 @@ class TwoFactorSetupForm(forms.Form):
         return code
 
 
+class SignInCodeForm(forms.Form):
+    """Step 2 of signing in: a code from the authenticator app, or a recovery code.
+
+    The check is ``security.check_sign_in_code``, which also counts a
+    wrong code toward the cooldown and, after too many, drops the
+    half-finished sign-in. On success ``user`` is the account to sign in.
+    """
+
+    code = forms.CharField(
+        label="Authenticator or recovery code",
+        max_length=20,
+        help_text=(
+            "The six-digit code your authenticator app shows now, or one of "
+            "your recovery codes."
+        ),
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "one-time-code",
+                "autocapitalize": "off",
+                "spellcheck": "false",
+                "autofocus": True,
+            }
+        ),
+    )
+
+    def __init__(self, request, *args, **kwargs):
+        self.request = request
+        self.user = None
+        super().__init__(*args, **kwargs)
+        self.fields["code"].widget.attrs["class"] = "input w-full font-mono"
+
+    def clean_code(self):
+        code = self.cleaned_data["code"]
+        self.user = security.check_sign_in_code(self.request, code)
+        if self.user is None:
+            raise forms.ValidationError("That code didn't work.", code="wrong_code")
+        return code
+
+
 class TwoFactorSettingsForm(ReauthenticationForm):
     """When to be asked for a code, besides signing in.
 

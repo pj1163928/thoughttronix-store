@@ -112,9 +112,10 @@ def test_unknown_identifier_failure_stores_no_identifier(client, db):
 
 
 def test_admin_sign_in_is_recorded_too(client, superuser):
+    # The admin's own sign-in page redirects here, with ``next`` set.
     client.post(
-        reverse("admin:login"),
-        {"username": "admin", "password": "admin123"},
+        reverse("accounts:login"),
+        {"username": "admin", "password": "admin123", "next": reverse("admin:index")},
     )
 
     assert events(Kind.SIGN_IN_SUCCEEDED).get().user == superuser

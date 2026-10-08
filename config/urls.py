@@ -7,7 +7,7 @@ Public catalog URLs use slugs; back-office URLs use pks.
 from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
-from django.views.generic import TemplateView
+from django.views.generic import RedirectView, TemplateView
 from django.views.static import serve
 
 
@@ -21,6 +21,14 @@ def serve_media(request, path):
 
 
 urlpatterns = [
+    # The admin's own sign-in page signs in on the password alone, which
+    # would skip the two-factor code step. Every sign-in goes through the
+    # store's page instead, and ``next`` brings the admin back.
+    path(
+        "admin/login/",
+        RedirectView.as_view(pattern_name="accounts:login", query_string=True),
+        name="admin_login",
+    ),
     path("admin/", admin.site.urls),
     path("accounts/", include("accounts.urls")),
     path("", include("dashboard.urls")),

@@ -412,17 +412,22 @@ in force at the next sign-in.
 
 ### Acceptance criteria
 
-- [ ] After a correct password, a two-factor user is not authenticated on
+- [x] After a correct password, a two-factor user is not authenticated on
       any page until step 2 succeeds.
-- [ ] Step 2 refuses a code from a time step already used.
-- [ ] A recovery code signs in once and is refused the second time, and
+- [x] Step 2 refuses a code from a time step already used.
+- [x] A recovery code signs in once and is refused the second time, and
       its use sends an alert.
-- [ ] The pending sign-in is refused after 5 minutes (fixed clock).
-- [ ] Five wrong codes discard the pending state, and the account is then
+- [x] The pending sign-in is refused after 5 minutes (fixed clock).
+- [x] Five wrong codes discard the pending state, and the account is then
       in cooldown at step 1.
-- [ ] `next` is honoured after step 2.
-- [ ] After a password reset, a two-factor user still has to pass step 2.
-- [ ] Users without two-factor sign in exactly as before.
+- [x] `next` is honoured after step 2.
+- [x] After a password reset, a two-factor user still has to pass step 2.
+- [x] Users without two-factor sign in exactly as before.
+
+Built with one addition the plan didn't list: Django's `/admin/login/`
+signs in on the password alone, so it now redirects to the store's
+sign-in page (keeping `next`). Every sign-in, the admin's included, goes
+through both steps.
 
 ---
 
