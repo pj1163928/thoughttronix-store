@@ -590,15 +590,28 @@ form refuses.
 
 ### Acceptance criteria
 
-- [ ] An admin email edit sets the email, marks it verified, records the
+- [x] An admin email edit sets the email, marks it verified, records the
       event and notifies the old address.
-- [ ] An admin username edit records the event with old and new values,
+- [x] An admin username edit records the event with old and new values,
       and an `@` or case-insensitive duplicate is refused.
-- [ ] Setting a password via the admin records the event and alerts the
+- [x] Setting a password via the admin records the event and alerts the
       owner.
-- [ ] On a superuser's change page those fields are read-only, and the
+- [x] On a superuser's change page those fields are read-only, and the
       set-password form refuses, including for the acting admin's own
       account.
+
+Built with four details the plan didn't spell out. Unticking or ticking
+"Active" on the change page goes through `lock_account` and
+`unlock_account`, so it is recorded, alerted and signs sessions out
+exactly as the list actions do. An email can be changed on the change
+page but not removed, since it is how the owner gets back in. On a
+superuser's page the password row shows a note in place of Django's
+"Reset password" button, because a read-only `password` would print the
+raw hash, and the set-password URL answers 403 for everyone, staff with
+`change_user` included. A password set by an admin counts as a password
+change: it is recorded as one with the admin as actor, moves the Account
+page's "last changed", and removes every device row, since none of them
+is the admin's.
 
 ---
 

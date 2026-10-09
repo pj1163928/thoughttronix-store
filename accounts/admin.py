@@ -1,10 +1,32 @@
+from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin.utils import unquote
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
+from django.core.exceptions import PermissionDenied
 from django.db.models import Case, DateTimeField, Exists, OuterRef, Q, Value, When
 from django.utils import timezone
 
 from . import security
 from .models import Address, SecurityEvent, TwoFactorDevice, User
+
+# On a superuser's change page these can't be edited, by anyone: no admin
+# can quietly take over another, and superusers change their own account
+# from the Account page. The password is shown as ``password_locked``.
+SUPERUSER_LOCKED_FIELDS = ("username", "email", "is_active")
+
+
+class UserChangeForm(DjangoUserChangeForm):
+    """Django's user change form, which can change an email but not remove it."""
+
+    def clean_email(self):
+        email = self.cleaned_data["email"]
+        if not email and self.initial.get("email"):
+            raise forms.ValidationError(
+                "An email address can be changed here but not removed: it is "
+                "how the owner gets back into their account."
+            )
+        return email
 
 
 class YesNoFilter(admin.SimpleListFilter):
@@ -71,8 +93,17 @@ class UserAdmin(DjangoUserAdmin):
     Superusers also see each account's security state as list columns
     and filters: email verified, two-factor on, and whether sign-in is
     locked or paused. Other staff see Django's list unchanged.
+
+    The change page edits an account directly, and the security fields
+    go through ``accounts.security`` with the editor as actor, exactly as
+    the owner's own changes do: a new username or email takes effect at
+    once (the email counted as verified, the old address told), ticking
+    "Active" off or on locks or unlocks, and Django's set-password form is
+    recorded and alerted. On a superuser's change page, the acting
+    admin's own included, none of those can be edited at all.
     """
 
+    form = UserChangeForm
     fieldsets = (
         *DjangoUserAdmin.fieldsets,
         ("ThoughtTronix", {"fields": ("job_title", "email_verified_at")}),
@@ -137,6 +168,95 @@ class UserAdmin(DjangoUserAdmin):
             SignInFilter,
             "groups",
         )
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if obj is not None and obj.is_superuser:
+            return (*fields, *SUPERUSER_LOCKED_FIELDS, "password_locked")
+        return fields
+
+    def get_fieldsets(self, request, obj=None):
+        """On a superuser's page, the password row loses its set-password button.
+
+        A read-only ``password`` would print the raw hash, so the row shows
+        ``password_locked`` in its place.
+        """
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is None or not obj.is_superuser:
+            return fieldsets
+        return [
+            (
+                name,
+                {
+                    **options,
+                    "fields": [
+                        "password_locked" if field == "password" else field
+                        for field in options["fields"]
+                    ],
+                },
+            )
+            for name, options in fieldsets
+        ]
+
+    @admin.display(description="Password")
+    def password_locked(self, obj):
+        return "Superusers change their own password, from their Account page."
+
+    def save_model(self, request, obj, form, change):
+        """Save an edit, with username, email and "Active" applied by ``security``.
+
+        The form has already checked the identity rules (no ``@``, unique
+        in any case). The email and "Active" are put back before saving,
+        because ``security.change_email``, ``lock_account`` and
+        ``unlock_account`` apply them themselves; each records its event
+        with the editor as actor and emails the owner.
+        """
+        if not change:
+            super().save_model(request, obj, form, change)
+            return
+        changed = set(form.changed_data)
+        new_email, active = obj.email, obj.is_active
+        for field in changed & {"email", "is_active"}:
+            setattr(obj, field, form.initial[field])
+        super().save_model(request, obj, form, change)
+        actor = request.user
+        if "username" in changed:
+            security.username_changed(
+                obj, form.initial["username"], actor=actor, request=request
+            )
+        if "email" in changed and not security.change_email(
+            obj, new_email, actor=actor, request=request
+        ):
+            self.message_user(
+                request,
+                f"{new_email} was taken by another account meanwhile, so the "
+                f"email is unchanged.",
+                messages.ERROR,
+            )
+        if "is_active" in changed:
+            apply = security.unlock_account if active else security.lock_account
+            apply(obj, actor=actor, request=request)
+
+    def user_change_password(self, request, id, form_url=""):
+        """Django's set-password page, refused for superusers and recorded.
+
+        A superuser's password, the acting admin's own included, is
+        changed only from their own Account page. For anyone else a new
+        password is recorded and the owner alerted; it is told apart from
+        a form that didn't save by the stored hash having changed.
+        """
+        user = self.get_object(request, unquote(id))
+        if user is not None and user.is_superuser:
+            raise PermissionDenied
+        before = user.password if user is not None else None
+        response = super().user_change_password(request, id, form_url)
+        if user is not None and request.method == "POST":
+            user.refresh_from_db(fields=["password"])
+            if user.password != before:
+                security.password_set_by_support(
+                    user, actor=request.user, request=request
+                )
+        return response
 
     @admin.display(
         boolean=True, description="Email verified", ordering="email_verified_at"

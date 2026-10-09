@@ -30,6 +30,95 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-09 — Account security, Phase 17: admin direct edits
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 17"
+2. "How can I test this in the browser"
+3. "append conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 17 of `plans/account-security.md` and
+  ticked its four acceptance criteria:
+  - **The admin's change page.** `UserAdmin.save_model` sends a changed
+    username, email or "Active" through `accounts/security.py`, with the
+    editor recorded as actor:
+    - A new username goes through `username_changed`.
+    - A new email goes through `change_email`, which counts it as
+      verified and sends a notice to the old address.
+    - Unticking or ticking "Active" goes through `lock_account` or
+      `unlock_account`.
+
+    The `@` rule and case-insensitive uniqueness come from the model's
+    validator and constraints, which the form already checks.
+  - **Setting a password.** `user_change_password` wraps Django's
+    set-password view. It answers 403 when the target is a superuser,
+    the acting admin included. It recognises a successful save by the
+    stored password hash having changed, then calls the new
+    `security.password_set_by_support`. That function records a password
+    change with the admin as actor, removes the owner's device rows and
+    sends the alert.
+  - **Superuser pages.** On a superuser's change page, username, email
+    and "Active" are read-only. The Password row shows a note in place
+    of Django's "Reset password" button.
+  - **Username alert.** It now says "by ThoughtTronix support" when an
+    admin made the change.
+  - **Tests.** `accounts/test_admin_direct_edits.py` has 25 tests:
+    - email and username edits, and the ones that are refused
+    - lock and unlock through "Active"
+    - setting a password, including a submission that doesn't save
+    - how the owner's Account page shows the change
+    - read-only superuser pages, run for another superuser and the
+      admin's own account
+    - the 403 on GET and POST, including for staff with `change_user`
+- **Prompt 2** got a browser walkthrough with no code changes. It uses
+  the seeded `admin` in one window and `customer` in a private one, and
+  covers each edit, the refused cases, the superuser page and 403, the
+  audit log filtered by actor, and reseeding before `db.sqlite3` is
+  committed.
+
+- **Deviations:**
+  - No questions were asked. Three choices the plan didn't cover were
+    made, reported, and noted under phase 17 in the plan:
+    - "Active" on the change page routes through lock and unlock.
+      Before, it bypassed the audit log.
+    - An email can be changed on the change page but not removed.
+    - A superuser's Password row shows a note, because a read-only
+      `password` field would print the raw hash.
+  - **One gap was raised and left open.** "Superuser status" is still
+    editable on another superuser's page. An admin could untick it and
+    then edit that account, which gets around this phase's guardrail.
+    Locking the checkbox would also stop all demotion from the admin, so
+    the decision was left to the user.
+  - Nothing was committed or opened in a browser. A PROMPTS.md entry was
+    only written when prompt 3 asked for one.
+
+- **Sideways:**
+  - **`uv run pytest` was blocked by Application Control** again, so
+    `uv run python -m pytest` was used, as in earlier phases.
+  - **One new test was wrong on the first run** (24 of 25 passed). After
+    the admin set a password, the test signed in with a stale `casey`
+    object that still held the old password hash, so the session was
+    rejected. It now reloads `casey` first. The new file wasn't re-run
+    on its own after the fix.
+  - **A test helper nearly demoted a superuser.** The first draft of the
+    change-page helper left `is_superuser` out of the POST. On a
+    superuser's page that unticks the box, so the "read-only" tests
+    would have demoted the account first. It was caught while writing
+    the tests, before any run, and it is what exposed the open gap
+    above.
+  - **The `save_model` draft would have crashed.** It read old values
+    from `form.initial` for fields that superuser pages make read-only,
+    which are missing from `form.initial` there. It was rewritten,
+    before any run, to restore only the fields that changed.
+  - **The full suite has no result yet.** The user backgrounded the run
+    of pytest, ruff check and ruff format. It had printed nothing by the
+    time prompts 1 to 3 were answered, so whether the suite is green and
+    lint is clean isn't known. A background-task notice from an earlier
+    session also arrived mid-session; it was ignored as unrelated.
+
 ## 2026-10-09 — Account security, Phase 16: admin override actions
 
 ### Prompts

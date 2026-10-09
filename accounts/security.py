@@ -20,7 +20,9 @@ choice to be asked for a code at checkout and on security changes, and
 the rule that keeps a superuser without two-factor on the setup page.
 Last come the overrides a superuser applies to other accounts from the
 admin: verifying an email, resetting two-factor, clearing a cooldown,
-locking and unlocking, and sending a reset link.
+locking and unlocking, sending a reset link, and setting a password.
+Editing a username or email on the admin's change page goes through the
+same functions as the owner's own changes, with the admin as actor.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -502,11 +504,13 @@ def username_changed(
         request=request,
         details={"old": old_username, "new": new_username},
     )
+    by_support = actor is not None and actor.pk != user.pk
     send_alert(
         user,
         "Your username was changed",
         (
-            f"The username for your ThoughtTronix account was changed from "
+            f"The username for your ThoughtTronix account was changed "
+            f"{'by ThoughtTronix support ' if by_support else ''}from "
             f'"{old_username}" to "{new_username}". Sign in with the new '
             f"username or your email address from now on."
         ),
@@ -1157,6 +1161,38 @@ def send_password_reset(user: User, *, actor: User, request: HttpRequest) -> boo
     send_mail("".join(subject.splitlines()), body, None, [user.email])
     record_event(Kind.PASSWORD_RESET_REQUESTED, user, actor=actor, request=request)
     return True
+
+
+def password_set_by_support(
+    user: User,
+    *,
+    actor: User,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> None:
+    """Record that an admin set ``user``'s password, and tell them.
+
+    Call after Django's set-password form has saved it. Saving it has
+    already signed out every session, because the password is part of
+    the session auth hash, so every device row goes too: none of them is
+    the admin's. It counts as a password change, so the Account page's
+    "last changed" moves with it. Sending a reset link
+    (``send_password_reset``) is the better override, because the admin
+    never learns the password; this one stays for an owner who can't
+    receive mail.
+    """
+    at = at or timezone.now()
+    user.user_sessions.all().delete()
+    record_event(Kind.PASSWORD_CHANGED, user, actor=actor, request=request, at=at)
+    send_alert(
+        user,
+        "Your password was changed",
+        (
+            "ThoughtTronix support changed the password for your account, and "
+            "every device signed in to it was signed out."
+        ),
+        at=at,
+    )
 
 
 def _hours(duration: timedelta) -> int:
