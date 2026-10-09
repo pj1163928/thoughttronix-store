@@ -146,6 +146,24 @@
     </section>
   </div>
 
+  {# Superusers only, and only for tidiness: the admin's own checks are the gate. #}
+  {% if user.is_superuser %}
+    <a href="{% url 'admin:accounts_user_changelist' %}" class="group card mt-4 bg-base-100 shadow-md transition hover:shadow-lg focus-visible:outline-2 focus-visible:outline-primary motion-safe:hover:-translate-y-0.5">
+      <div class="card-body flex-row items-center gap-4">
+        <span class="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+          {% include "accounts/partials/_icon.html" with name="shield" motion="pop" delay="0.25" only %}
+        </span>
+        <div class="min-w-0 flex-1">
+          <h2 class="font-semibold">User security</h2>
+          <p class="text-sm opacity-70">
+            Every account's email, two-factor and sign-in state, and the audit log, in Django's admin.
+          </p>
+        </div>
+        <span class="opacity-50">{% include "accounts/partials/_icon.html" with name="chevron" motion="nudge" size="h-5 w-5" delay="0.4" only %}</span>
+      </div>
+    </a>
+  {% endif %}
+
   {# What can be changed: each tile opens its own small page, which asks for the current password. #}
   <section class="mt-8" aria-labelledby="actions-heading">
     <h2 id="actions-heading" class="flex items-center gap-2 text-xl font-bold">

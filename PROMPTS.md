@@ -30,6 +30,155 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-09 — Account security, Phase 15: admin visibility
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 15"
+2. "How can I test this in the browser"
+3. "append the conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 15 of `plans/account-security.md` and
+  ticked its three acceptance criteria:
+  - **The links.** Superusers get a "User security" card on the Account
+    page and a "User security" tab at the end of the back-office tab
+    rail. Both open the admin's user list. Hiding them from others is
+    cosmetic, and the template comments say so.
+  - **The security module.** `security.paused_accounts(now=)` returns
+    every paused account's pk with the time its pause ends. It only checks
+    accounts that started a pause in the last hour, since no pause is
+    longer, and checks each against the same rule as `cooldown_ends_at`.
+  - **The admin.** For superusers, `UserAdmin.get_queryset` annotates
+    `two_factor_on` (an `Exists` on confirmed devices) and
+    `sign_in_paused_until` (a `Case` built from `paused_accounts`). That
+    works out pauses once per page, not once per row. The list gains
+    "Email verified", "Two-factor" and "Sign-in" columns. "Sign-in" shows
+    "Locked", "Paused until HH:MM" or blank. Matching filters are email
+    verified (yes/no), two-factor (yes/no) and sign-in
+    (Locked / Paused / Allowed).
+  - **Tests.** `accounts/test_admin_visibility.py` has 17 tests: who sees
+    the links, `paused_accounts` with a fixed clock, the column values,
+    an unconfirmed setup not counting as two-factor on, every filter
+    option, and staff with `view_user` seeing none of it. The full suite
+    passed (973) and ruff check was clean.
+- **Prompt 2** got a browser walkthrough with no code changes: reseed,
+  sign in as `admin` and finish setup, check the links as each role, then
+  in a private window turn on two-factor for `customer`, pause `employee`
+  with five wrong passwords and lock a background customer. After that,
+  check the columns and each filter, and check that `employee` with
+  "Can view user" sees nothing new.
+
+- **Deviations:**
+  - No questions were asked. Three choices the plan didn't cover were
+    made, reported, and noted under phase 15 in the plan:
+    - Locked and paused share one "Sign-in" column and filter.
+    - That filter replaces Django's "Active" filter for superusers.
+    - The new columns and filters are superuser-only. That includes the
+      "Email verified" column from phase 8, which every staff member who
+      could view users used to see. It follows the PRD's rule that staff
+      who can reach `/admin/` get nothing new.
+  - Nothing was committed or opened in a browser.
+
+- **Sideways:**
+  - **A stray `cat` hung the first admin edit.** The heredoc script that
+    was meant to rewrite `accounts/admin.py` started with a leftover
+    `cat > "$TMP/x.py"`, which waited on stdin until the user
+    backgrounded it. It was stopped, `git diff --stat` confirmed
+    `admin.py` was untouched, and the edits were redone with the Edit
+    tool.
+  - **`uv run pytest` was blocked** by the Application Control policy
+    again. `uv run python -m pytest` was used instead.
+  - **One test was wrong on the first run** (16 of 17 passed). It assumed
+    a superuser-only filter used by a staff member would show an
+    unfiltered list. The admin actually redirects to `?e=1`, so the test
+    now asserts that redirect.
+  - **The prompt 2 reply went out too early.** The full run was still
+    going when it was sent, and the reply said its result wasn't known.
+    It then passed 973 tests with ruff check clean, but `ruff format
+    --check` flagged `accounts/admin.py` and the new test file. Both were
+    formatted and their tests re-run with the email-verification tests
+    (47 passed). The full suite was not re-run after formatting.
+
+## 2026-10-09 — Account security, Phase 14: superuser two-factor gate and seed
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 14"
+2. "How can I verify the changes in the browser"
+3. "Add all messages to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 14 of `plans/account-security.md` and
+  ticked its five acceptance criteria:
+  - **The security module.** `two_factor_setup_owed(user)` is true for a
+    signed-in superuser with no confirmed device. It builds on phase 13's
+    `two_factor_required` and reads the database on every call, so
+    promoting a user gates their next request. A started but unconfirmed
+    setup still counts as not enrolled.
+  - **The middleware.** `TwoFactorRequiredMiddleware` in
+    `accounts/middleware.py` sits right after `UserSessionMiddleware`. It
+    redirects every request from a gated superuser, POSTs and `/admin/`
+    included, to `accounts:two_factor_setup`. It exempts only the setup
+    page, `accounts:logout`, and `STATIC_URL` and `MEDIA_URL`. It holds no
+    logic of its own beyond that path list.
+  - **The setup page.** For a superuser it shows "Administrator accounts
+    must use two-factor authentication" and hides "Cancel", which would
+    only bounce back to the same page.
+  - **The seed.** `_wipe` now deletes every `TwoFactorDevice` and
+    `RecoveryCode`, not just the demo accounts' (those already cascaded).
+    A demo sign-up that turned two-factor on can no longer leave a secret
+    in the committed `db.sqlite3`.
+  - **Tests.** `accounts/test_superuser_gate.py` has 19 tests, all
+    passing on the first run. They cover redirects from the storefront,
+    the Account page, the dashboard, the admin index and the user list,
+    gated POSTs, a pending device, promotion, the open pages, finishing
+    setup, the people the gate leaves alone, and the seed (nobody
+    enrolled, and the seeded `admin` lands on setup after signing in).
+    Ruff is clean.
+- **Prompt 2** got a step-by-step browser walkthrough with no code
+  changes: reseed, sign in as `admin`, check the bounces and that
+  sign-out still works, finish setup with an authenticator app, check
+  `customer` and `employee` in a private window, promote `employee` in
+  the admin to see their next click gated, then reseed before
+  committing `db.sqlite3`.
+
+- **Deviations:**
+  - No questions were asked. Two choices the plan didn't cover were made,
+    reported, and noted under phase 14 in the plan: the seed clears every
+    device, and the setup page explains the gate and hides "Cancel".
+  - Existing tests that act as a superuser needed a confirmed device,
+    since the gate is meant to block them. A shared `enrol_two_factor`
+    fixture went into `conftest.py`. Four superuser fixtures (in
+    `test_email_verification.py`, `test_security_events.py` and
+    `products/test_image_views.py`) now use it.
+    `test_staff_can_sign_in_to_the_admin_by_email` switched from a
+    superuser to a staff user, which keeps its purpose without owing
+    setup.
+  - Nothing was committed or opened in a browser.
+
+- **Sideways:**
+  - **`uv run pytest` was blocked** by a Windows Application Control
+    policy ("os error 4551"). `uv run python -m pytest` worked and was
+    used from then on.
+  - **The first full run** had 11 failures, all superuser tests stopped
+    by the gate. That was expected, and the fixture changes above fixed
+    them.
+  - **A test missed a seed edge case.** As first written, the seed test
+    enrolled the `customer` fixture, whose username the seed deletes
+    anyway, so it couldn't show that non-demo devices were cleared. It
+    was rewritten around a `demo_signup` account that survives the seed.
+  - **A failure the fixture change caused.** The user backgrounded the
+    second full run, and the first reply went out while it was still
+    going. It ended with 955 passed and 1 failed:
+    `test_admin_sign_in_is_recorded_too`. Its superuser was now enrolled,
+    so the password step stopped at the code step and recorded no
+    success. The test now completes step 2 with a `pyotp` code, as a real
+    admin sign-in does, and its file passes (22 tests). The full suite
+    was not re-run after that one-test fix.
+
 ## 2026-10-07 — Account security, Phase 13: managing two-factor
 
 ### Prompts

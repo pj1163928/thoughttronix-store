@@ -211,6 +211,28 @@ def is_cooling_down(user: User, *, now: datetime | None = None) -> bool:
     return cooldown_ends_at(user, now=now) is not None
 
 
+def paused_accounts(*, now: datetime | None = None) -> dict[int, datetime]:
+    """Every account whose sign-in is paused at ``now``: pk -> when it lifts.
+
+    For the admin's user list, which shows and filters by this for a page
+    of users at once. Only accounts with a pause started in the last hour
+    can still be paused, since no pause is longer, so only those are
+    checked, each against the same rule as ``cooldown_ends_at``.
+    """
+    now = now or timezone.now()
+    recent = SecurityEvent.objects.filter(
+        kind=Kind.COOLDOWN_STARTED,
+        created_at__gt=now - timedelta(minutes=max(PAUSE_MINUTES)),
+        created_at__lte=now,
+    ).values("user")
+    paused = {}
+    for user in User.objects.filter(pk__in=recent):
+        ends_at = cooldown_ends_at(user, now=now)
+        if ends_at is not None:
+            paused[user.pk] = ends_at
+    return paused
+
+
 def record_failure(
     kind: SecurityEvent.Kind,
     user: User | None,

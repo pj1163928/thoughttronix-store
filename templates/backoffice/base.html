@@ -25,6 +25,10 @@
     <a role="tab"
        class="tab {% if section == 'dashboard' %}tab-active{% endif %}"
        href="{% url 'dashboard:index' %}">Dashboard</a>
+    {# Superusers only, and only for tidiness: the admin's own checks are the gate. #}
+    {% if user.is_superuser %}
+      <a role="tab" class="tab" href="{% url 'admin:accounts_user_changelist' %}">User security</a>
+    {% endif %}
   </div>
 
   {% block backoffice %}{% endblock %}

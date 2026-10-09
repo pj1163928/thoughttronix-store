@@ -517,11 +517,19 @@ and filters for email verified, two-factor on, and locked / cooling down.
 
 ### Acceptance criteria
 
-- [ ] Superusers see the link on the hub and in the tab rail. Staff and
+- [x] Superusers see the link on the hub and in the tab rail. Staff and
       customers see neither.
-- [ ] The user list shows correct values for verified, 2FA on, and locked
+- [x] The user list shows correct values for verified, 2FA on, and locked
       / cooling down.
-- [ ] Each of those can be filtered.
+- [x] Each of those can be filtered.
+
+Built with two details the plan didn't spell out. The new columns and
+filters, and the "Email verified" column brought forward in phase 8, are
+shown to superusers only, since staff who can reach `/admin/` get nothing
+new. Locked and paused share one "Sign-in" column ("Locked", "Paused until
+14:32", or blank) and one filter (Locked / Paused / Allowed), which stands
+in for Django's "Active" filter. Which accounts are paused is worked out
+once per list by `security.paused_accounts`, not once per row.
 
 ---
 

@@ -1,8 +1,59 @@
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.db.models import Case, DateTimeField, Exists, OuterRef, Q, Value, When
+from django.utils import timezone
 
 from . import security
-from .models import Address, SecurityEvent, User
+from .models import Address, SecurityEvent, TwoFactorDevice, User
+
+
+class YesNoFilter(admin.SimpleListFilter):
+    """A Yes/No filter on one condition, given as ``matches``."""
+
+    def lookups(self, request, model_admin):
+        return (("yes", "Yes"), ("no", "No"))
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(self.matches)
+        if self.value() == "no":
+            return queryset.exclude(self.matches)
+        return queryset
+
+
+class EmailVerifiedFilter(YesNoFilter):
+    title = "email verified"
+    parameter_name = "email_verified"
+    # ``User.email_verified`` as a query: an account with no email isn't.
+    matches = Q(email_verified_at__isnull=False) & ~Q(email="")
+
+
+class TwoFactorFilter(YesNoFilter):
+    title = "two-factor"
+    parameter_name = "two_factor"
+    matches = Q(two_factor_on=True)
+
+
+class SignInFilter(admin.SimpleListFilter):
+    """Whether each account is locked, paused, or free to sign in."""
+
+    title = "sign-in"
+    parameter_name = "sign_in"
+
+    def lookups(self, request, model_admin):
+        return (("locked", "Locked"), ("paused", "Paused"), ("allowed", "Allowed"))
+
+    def queryset(self, request, queryset):
+        match self.value():
+            case "locked":
+                return queryset.filter(is_active=False)
+            case "paused":
+                return queryset.filter(sign_in_paused_until__isnull=False)
+            case "allowed":
+                return queryset.filter(
+                    is_active=True, sign_in_paused_until__isnull=True
+                )
+        return queryset
 
 
 @admin.register(User)
@@ -14,6 +65,10 @@ class UserAdmin(DjangoUserAdmin):
     acting admin's own account and every superuser (see
     ``security.overridable``), and the security work is
     ``accounts.security``'s.
+
+    Superusers also see each account's security state as list columns
+    and filters: email verified, two-factor on, and whether sign-in is
+    locked or paused. Other staff see Django's list unchanged.
     """
 
     fieldsets = (
@@ -21,15 +76,77 @@ class UserAdmin(DjangoUserAdmin):
         ("ThoughtTronix", {"fields": ("job_title", "email_verified_at")}),
     )
     readonly_fields = ("email_verified_at",)
-    list_display = ("username", "email", "email_verified", "job_title", "is_staff")
+    list_display = ("username", "email", "job_title", "is_staff")
     actions = ["mark_email_verified"]
 
     def has_override_permission(self, request):
         return request.user.is_active and request.user.is_superuser
 
-    @admin.display(boolean=True, description="Email verified")
+    def get_queryset(self, request):
+        """For superusers, annotate each account's two-factor state and pause.
+
+        Pauses come from ``security.paused_accounts``, worked out once per
+        list rather than once per row.
+        """
+        queryset = super().get_queryset(request)
+        if not self.has_override_permission(request):
+            return queryset
+        paused = security.paused_accounts()
+        return queryset.annotate(
+            two_factor_on=Exists(
+                TwoFactorDevice.objects.confirmed().filter(user=OuterRef("pk"))
+            ),
+            sign_in_paused_until=Case(
+                *(When(pk=pk, then=Value(until)) for pk, until in paused.items()),
+                default=Value(None),
+                output_field=DateTimeField(),
+            ),
+        )
+
+    def get_list_display(self, request):
+        if not self.has_override_permission(request):
+            return self.list_display
+        return (
+            "username",
+            "email",
+            "email_verified",
+            "two_factor",
+            "sign_in",
+            "job_title",
+            "is_staff",
+        )
+
+    def get_list_filter(self, request):
+        if not self.has_override_permission(request):
+            return self.list_filter
+        # The sign-in filter's "Locked" stands in for Django's "Active".
+        return (
+            "is_staff",
+            "is_superuser",
+            EmailVerifiedFilter,
+            TwoFactorFilter,
+            SignInFilter,
+            "groups",
+        )
+
+    @admin.display(
+        boolean=True, description="Email verified", ordering="email_verified_at"
+    )
     def email_verified(self, obj):
         return obj.email_verified
+
+    @admin.display(boolean=True, description="Two-factor", ordering="two_factor_on")
+    def two_factor(self, obj):
+        return obj.two_factor_on
+
+    @admin.display(description="Sign-in")
+    def sign_in(self, obj):
+        """ "Locked", "Paused until 14:32", or blank when sign-in is allowed."""
+        if not obj.is_active:
+            return "Locked"
+        if obj.sign_in_paused_until is not None:
+            return f"Paused until {timezone.localtime(obj.sign_in_paused_until):%H:%M}"
+        return None
 
     @admin.action(description="Mark email verified", permissions=["override"])
     def mark_email_verified(self, request, queryset):
