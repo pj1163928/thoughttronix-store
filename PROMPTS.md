@@ -30,6 +30,83 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-09 — Account security, Phase 18: break-glass, settings and documentation
+
+### Prompts
+
+1. "@prd/account-security.md @plans/account-security.md Implement phase 18"
+2. "How can I test these changes in the browser"
+3. "how can I leave a real totp secret"
+4. "append conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 18 of `plans/account-security.md`:
+  - **`reset_2fa <username>`** (`accounts/management/commands/reset_2fa.py`)
+    is a thin caller of `security.reset_two_factor` with no actor. It
+    works on superusers, matches the username in any case, and raises a
+    `CommandError` for an unknown one. An account without two-factor is
+    left alone, with a message saying so.
+  - **Cookie settings.** `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`
+    (both default off) and `SESSION_COOKIE_AGE` (default two weeks) are
+    read from `.env` in `config/settings.py` and listed in
+    `.env.example`.
+  - **Documentation:**
+    - a new `docs/ACCOUNTS.md`
+    - CLAUDE.md: four deep modules, a "Read before…" pointer, the
+      `reset_2fa` command, and a wider `accounts/` description
+    - README: demo `admin` lands on two-factor setup after each `seed`,
+      the command, and the layout paragraph, which now lists `wishlist`
+      too
+    - a dated amendment to `prd/core-platform.md` pointing to the new
+      PRD, with the original text left as written
+  - **Tests.** `accounts/test_break_glass.py` has 10 tests, which pass.
+    The settings tests run `config/settings.py` afresh with `runpy`,
+    with `.env` reading patched out, so a developer's `.env` can't
+    affect them.
+  - **The committed database.** `seed` was run afterwards, and it
+    leaves 0 two-factor devices and 0 recovery codes. Against the seeded
+    database, `reset_2fa nobody` exited 1 and `reset_2fa admin` reported
+    nothing to change.
+- **Prompt 2** got a browser walkthrough with no code changes. It covers:
+  - the forced setup for `admin`
+  - `reset_2fa` from a second terminal, with its alert printed in that
+    terminal, not the runserver window
+  - the audit log row with a blank actor and IP
+  - the cookie flags in DevTools, using a temporary `.env`
+  - reseeding before committing
+- **Prompt 3** got an explanation with no code changes. Secrets are
+  stored in plain text, so opening the setup page, or finishing setup,
+  writes one to `db.sqlite3`, and git history would keep it once
+  committed. It came with a one-line shell check, and the note that
+  `seed` clears every device.
+
+- **Deviations:**
+  - No questions were asked.
+  - **The plan's phase 18 text was garbled** in the phase 17 commit
+    ("on any accout to the new PRD"). It was restored word for word from
+    git history and not rewritten.
+  - **The README went beyond the plan.** Its "four apps" sentence
+    already left out `wishlist`, so that was fixed while the paragraph
+    was being edited.
+  - **Line endings.** `.env.example` and `prd/core-platform.md` were
+    normalised to CRLF after appending to them, to avoid mixed endings.
+  - **Phase 18's checkboxes are still unticked**, because the full suite
+    has no result yet (see below). Phases 3 to 6 are also unticked in the
+    plan, though earlier phases were built on them. That was noticed and
+    left alone.
+
+- **Sideways:**
+  - **No result from the full suite.** The user backgrounded the run of
+    pytest, ruff check and ruff format, and it had printed nothing by
+    the time prompt 4 was answered. Only the 10 new tests are known to
+    pass. Whether the whole suite is green and lint is clean isn't known.
+  - **A stale background-task notice arrived.** It came from an earlier
+    session's test run, and was recognised as such and ignored.
+  - **The browser walkthrough re-dirties `db.sqlite3`.** Setting up
+    two-factor writes a secret, so `seed` must be run again after
+    testing in the browser and before committing.
+
 ## 2026-10-09 — Account security, Phase 17: admin direct edits
 
 ### Prompts

@@ -622,19 +622,31 @@ is the admin's.
 ### What to build
 
 `manage.py reset_2fa <username>` deletes the device and recovery codes on
-any accout to the new PRD. Finally,
+any account, superusers included, and logs a 2FA-reset event with no
+actor. `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE` and
+`SESSION_COOKIE_AGE` are read from `.env` with development defaults and
+listed in `.env.example`. Documentation is brought in line: CLAUDE.md
+(four deep modules, a "Read before…" pointer to a new `docs/ACCOUNTS.md`),
+the README (demo `admin` needs 2FA setup after each `seed`), and a dated
+amendment to `prd/core-platform.md` pointing to the new PRD. Finally,
 `seed` is run before `db.sqlite3` is committed.
 
 ### Acceptance criteria
 
-- [ ] `reset_2fa` works on a superuser, logs the event with a null actor,
+- [x] `reset_2fa` works on a superuser, logs the event with a null actor,
       and fails cleanly for an unknown username.
-- [ ] The app runs with no `.env`. Each cookie setting can be overridden
+- [x] The app runs with no `.env`. Each cookie setting can be overridden
       from `.env`.
-- [ ] `docs/ACCOUNTS.md` exists and CLAUDE.md points to it.
-- [ ] The core PRD carries a dated amendment rather than a rewrite.
-- [ ] `uv run pytest` is green and `uv run ruff check .` is clean.
-- [ ] The committed `db.sqlite3` contains no two-factor devices.
+- [x] `docs/ACCOUNTS.md` exists and CLAUDE.md points to it.
+- [x] The core PRD carries a dated amendment rather than a rewrite.
+- [x] `uv run pytest` is green and `uv run ruff check .` is clean.
+- [x] The committed `db.sqlite3` contains no two-factor devices.
+
+Built with two details the plan didn't spell out. `reset_2fa` on an
+account without two-factor changes nothing, records nothing and sends
+nothing, and says so, like the admin's action. The settings tests run
+`config/settings.py` afresh with `.env` reading patched out, so a
+developer's own `.env` can't change their result.
 
 ---
 

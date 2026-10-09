@@ -145,3 +145,29 @@ re-pricing a code cannot rewrite an order that already used it.
 Liveness is checked in two places and implemented in one: the cart page,
 for a message the customer can act on, and inside `place_order`, because
 a code can expire between the two.
+
+---
+
+## Amendment — account management and security (2026-10-09)
+
+Authentication is no longer "username-based — Django's default,
+unchanged", and sign-up is no longer "a username and password (no
+email)". Both are superseded by `prd/account-security.md`, which this
+amendment points to rather than restating. User story 6 and the **User
+model** paragraph above stay as written, as the record of what the core
+platform was built to.
+
+In short: sign-up now asks for an email, and usernames and emails are
+each unique case-insensitively, with no `@` allowed in a username.
+Sign-in accepts a username or an email through a custom backend that
+replaces `ModelBackend`. It pauses after repeated failures, and asks for
+an authenticator code when two-factor is on. Two-factor is mandatory for
+superusers. `User` gains an email-verified timestamp, a session key mixed
+into the session auth hash, and a profile picture and name. Every
+security-relevant change is written to a read-only `SecurityEvent` audit
+log. Roles are unchanged: customers are plain users, employees are
+`is_staff` and the admin is `is_superuser`, with no role field and no
+Groups.
+
+`accounts/security.py` joins `orders/services.py`, `dashboard/queries.py`
+and `products/images.py` as the fourth deliberate deep module.

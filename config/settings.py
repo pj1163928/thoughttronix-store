@@ -109,6 +109,15 @@ LOGOUT_REDIRECT_URL = "products:catalog"
 # A password-reset link lasts one hour (Django's default is three days).
 PASSWORD_RESET_TIMEOUT = 3600
 
+# Cookies. The defaults suit plain-HTTP development; behind HTTPS, set
+# both *_SECURE settings to True in .env so the cookies never travel
+# unencrypted. A session lasts two weeks, Django's own default.
+SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=False)
+
+CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=False)
+
+SESSION_COOKIE_AGE = env.int("SESSION_COOKIE_AGE", default=60 * 60 * 24 * 14)
+
 AUTH_PASSWORD_VALIDATORS = [
     {
         "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",

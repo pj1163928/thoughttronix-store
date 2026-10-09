@@ -16,6 +16,9 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 - changing the wishlist, its product-page button, or anything that could
   expose one customer's wishlist to anyone else →
   [docs/WISHLIST.md](docs/WISHLIST.md)
+- touching sign-in, the Account area, two-factor, `SecurityEvent`,
+  `accounts/security.py`, the user admin, or the cookie settings →
+  [docs/ACCOUNTS.md](docs/ACCOUNTS.md)
 
 ## Commands
 
@@ -23,6 +26,8 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 - `uv run python manage.py migrate` — apply migrations
 - `uv run python manage.py seed` — reset the database to the demo world
   (destructive, idempotent)
+- `uv run python manage.py reset_2fa <username>` — break-glass: turn
+  two-factor off for any account, superusers included
 - `uv run python manage.py tailwind runserver` — dev server + Tailwind watch
 - `uv run python manage.py tailwind build` — compile production CSS
 - `uv run pytest` — run the test suite; it must be green before you finish
@@ -32,8 +37,9 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 
 - `config/` — the project package (settings, root urls)
 - `accounts/` — custom user model (`accounts.User`, `AbstractUser` + nullable
-  `job_title`), `StaffRequiredMixin` (gates every back-office view), and the
-  saved address book. Roles are Django's own vocabulary: customers are plain
+  `job_title`), `StaffRequiredMixin` (gates every back-office view), the
+  saved address book, and account security: the Account area, two-factor,
+  the `SecurityEvent` audit log and the superuser overrides in the admin. Roles are Django's own vocabulary: customers are plain
   users, employees are `is_staff`, the admin is `is_superuser`. No role field,
   no Groups.
 - `products/` — catalog (`Category`, `Product`, `Tag`, `ProductImage`), its
@@ -57,10 +63,12 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 Logic lives in models and managers; cross-model workflows get a service
 module; views stay thin.
 
-Exactly three deliberate deep modules, docstrings and type hints on every
+Exactly four deliberate deep modules, docstrings and type hints on every
 public function: `orders/services.py` (`place_order`),
-`dashboard/queries.py` (the dashboard's aggregations) and
-`products/images.py` (image validation, storage and snapshots).
+`dashboard/queries.py` (the dashboard's aggregations),
+`products/images.py` (image validation, storage and snapshots) and
+`accounts/security.py` (two-factor, the sign-in cooldown, the audit log,
+alert emails and the admin overrides).
 
 Idiomatic Django throughout: class-based views, model methods, custom
 managers/querysets, forms own their validation. Settings read from `.env`
