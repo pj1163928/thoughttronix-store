@@ -7,6 +7,15 @@
     <div class="card bg-base-100 shadow-md">
       <div class="card-body">
         <h1 class="card-title text-2xl">Set up two-factor authentication</h1>
+        {% if required %}
+          <div class="alert alert-info" role="status">
+            <span>
+              Administrator accounts must use two-factor authentication.
+              Set it up to continue — the rest of the store, the back office
+              and the admin open once it's on.
+            </span>
+          </div>
+        {% endif %}
         <p class="text-sm opacity-70">
           Once it's on, signing in takes your password and a code from an
           authenticator app on your phone, such as Google Authenticator,
@@ -50,7 +59,9 @@
               {% endfor %}
 
               <div class="flex justify-end gap-2">
-                <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+                {% if not required %}
+                  <a href="{% url 'accounts:account' %}" class="btn btn-ghost">Cancel</a>
+                {% endif %}
                 <button type="submit" class="btn btn-primary">Turn on two-factor</button>
               </div>
             </form>

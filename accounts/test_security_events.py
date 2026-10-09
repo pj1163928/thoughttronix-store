@@ -3,6 +3,7 @@
 import inspect
 from http import HTTPStatus
 
+import pyotp
 import pytest
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -19,10 +20,12 @@ Kind = SecurityEvent.Kind
 
 
 @pytest.fixture
-def superuser(db):
-    return get_user_model().objects.create_superuser(
+def superuser(db, enrol_two_factor):
+    admin = get_user_model().objects.create_superuser(
         username="admin", password="admin123", email="admin@example.com"
     )
+    enrol_two_factor(admin)
+    return admin
 
 
 def events(kind):
@@ -112,11 +115,14 @@ def test_unknown_identifier_failure_stores_no_identifier(client, db):
 
 
 def test_admin_sign_in_is_recorded_too(client, superuser):
-    # The admin's own sign-in page redirects here, with ``next`` set.
+    # The admin's own sign-in page redirects here, with ``next`` set, and
+    # a superuser always has two-factor, so it takes both steps.
     client.post(
         reverse("accounts:login"),
         {"username": "admin", "password": "admin123", "next": reverse("admin:index")},
     )
+    code = pyotp.TOTP(superuser.two_factor_device.secret).now()
+    client.post(reverse("accounts:login_verify"), {"code": code})
 
     assert events(Kind.SIGN_IN_SUCCEEDED).get().user == superuser
 

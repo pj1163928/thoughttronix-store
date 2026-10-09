@@ -486,13 +486,21 @@ setup at first sign-in after every `seed`.
 
 ### Acceptance criteria
 
-- [ ] An unenrolled superuser is redirected from the storefront, the back
+- [x] An unenrolled superuser is redirected from the storefront, the back
       office and `/admin/` to setup.
-- [ ] Setup, sign-out and static/media remain reachable.
-- [ ] An enrolled superuser and every non-superuser are unaffected.
-- [ ] Promoting a user to superuser gates their next request.
-- [ ] After `seed`, no two-factor devices or recovery codes exist, and
+- [x] Setup, sign-out and static/media remain reachable.
+- [x] An enrolled superuser and every non-superuser are unaffected.
+- [x] Promoting a user to superuser gates their next request.
+- [x] After `seed`, no two-factor devices or recovery codes exist, and
       signing in as `admin` lands on setup.
+
+Built with two details the plan didn't spell out. The seed now deletes
+every two-factor device and recovery code, not only those of its own
+accounts, so a demo sign-up that turned two-factor on can't leave a
+secret in the committed `db.sqlite3`. On the setup page, a superuser
+sees why they're there ("Administrator accounts must use two-factor
+authentication") and no "Cancel" link, which would only bounce them
+back.
 
 ---
 

@@ -756,8 +756,9 @@ def test_detail_without_an_image_shows_the_placeholder(client, product):
 
 
 @pytest.fixture
-def admin_client(client, db):
+def admin_client(client, db, enrol_two_factor):
     admin = get_user_model().objects.create_superuser("root", password="root12345")
+    enrol_two_factor(admin)
     client.force_login(admin)
     return client
 

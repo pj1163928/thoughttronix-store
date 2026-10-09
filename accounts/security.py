@@ -15,8 +15,9 @@ links that verify an email address, those that confirm a new one, the
 record of a forgotten password being reset, and two-factor: the
 authenticator secret and its QR code, checking codes, recovery codes,
 the code step of signing in, a code in place of the password as proof,
-replacing recovery codes and turning two-factor off, and the owner's
-choice to be asked for a code at checkout and on security changes.
+replacing recovery codes and turning two-factor off, the owner's
+choice to be asked for a code at checkout and on security changes, and
+the rule that keeps a superuser without two-factor on the setup page.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -1131,6 +1132,21 @@ def generate_recovery_codes(user: User) -> list[str]:
 def two_factor_required(user: User) -> bool:
     """Whether ``user`` must keep two-factor on: every superuser must."""
     return user.is_superuser
+
+
+def two_factor_setup_owed(user: User) -> bool:
+    """Whether ``user`` is signed in, must have two-factor, and hasn't set it up.
+
+    Such an account may use nothing but the setup page and signing out
+    until it has. The flag is read fresh on every call, so promoting a
+    user to superuser gates them from their next request. Costs a query
+    only for superusers.
+    """
+    return (
+        user.is_authenticated
+        and two_factor_required(user)
+        and not TwoFactorDevice.objects.confirmed().filter(user=user).exists()
+    )
 
 
 def disable_two_factor(

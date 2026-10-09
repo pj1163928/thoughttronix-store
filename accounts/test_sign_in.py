@@ -148,8 +148,12 @@ def test_an_inactive_superuser_has_no_permissions(db):
 
 
 def test_staff_can_sign_in_to_the_admin_by_email(client, db):
-    User.objects.create_superuser(
-        username="admin", password="admin-pass-123", email="admin@example.com"
+    # Staff rather than a superuser, who would owe two-factor setup first.
+    User.objects.create_user(
+        username="admin",
+        password="admin-pass-123",
+        email="admin@example.com",
+        is_staff=True,
     )
 
     response = client.post(

@@ -8,13 +8,14 @@ import io
 from datetime import timedelta
 from decimal import Decimal
 
+import pyotp
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 from PIL import Image
 
-from accounts.models import Address
+from accounts.models import Address, TwoFactorDevice
 from orders.models import Cart, CartItem, DiscountCode
 from products.models import Category, Product, Tag
 
@@ -82,6 +83,23 @@ def staff_user(db):
         is_staff=True,
         job_title="Junior Thought Curator",
     )
+
+
+@pytest.fixture
+def enrol_two_factor(db):
+    """Turn two-factor on for a user: ``enrol_two_factor(user)`` -> its device.
+
+    Superusers need this before they can open any page but two-factor
+    setup. The device is confirmed with a fresh secret; make codes from
+    it with ``pyotp.TOTP(device.secret)``.
+    """
+
+    def enrol(user):
+        return TwoFactorDevice.objects.create(
+            user=user, secret=pyotp.random_base32(), confirmed_at=timezone.now()
+        )
+
+    return enrol
 
 
 @pytest.fixture

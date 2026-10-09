@@ -336,10 +336,12 @@ def test_seed_verifies_admin_and_employee_but_not_customer(db):
 
 
 @pytest.fixture
-def admin_user(db):
-    return User.objects.create_superuser(
+def admin_user(db, enrol_two_factor):
+    admin = User.objects.create_superuser(
         username="ada", password="ada-pass-123", email="ada@example.com"
     )
+    enrol_two_factor(admin)
+    return admin
 
 
 def run_mark_verified(client, *users):

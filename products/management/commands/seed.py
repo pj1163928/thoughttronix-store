@@ -26,7 +26,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from accounts import security
-from accounts.models import Address, SecurityEvent
+from accounts.models import Address, RecoveryCode, SecurityEvent, TwoFactorDevice
 from orders.models import Cart, DiscountCode, Order, OrderItem
 from products import images
 from products.models import Category, Product, ProductImage, Tag
@@ -734,6 +734,12 @@ class Command(BaseCommand):
             | Q(user=None, username__in=MANAGED_USERNAMES)
         ).delete()
         get_user_model().objects.filter(username__in=MANAGED_USERNAMES).delete()
+
+        # Nobody comes out of a seed enrolled in two-factor, demo sign-ups
+        # included: the seeded admin is walked through setup at first
+        # sign-in, and the committed db.sqlite3 holds no TOTP secret.
+        TwoFactorDevice.objects.all().delete()
+        RecoveryCode.objects.all().delete()
 
     def _create_tags(self):
         return {

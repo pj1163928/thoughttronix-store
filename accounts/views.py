@@ -513,6 +513,7 @@ class TwoFactorSetupView(LoginRequiredMixin, FormView):
             # segno's own SVG, built from the secret: no user input reaches it.
             qr_svg=mark_safe(security.provisioning_qr_svg(self.device)),
             setup_key=security.setup_key(self.device),
+            required=security.two_factor_required(self.request.user),
             **kwargs,
         )
 
