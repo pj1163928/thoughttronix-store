@@ -548,17 +548,30 @@ those skipped. Only superusers can use them.
 
 ### Acceptance criteria
 
-- [ ] Each action changes the target state and records an event with the
+- [x] Each action changes the target state and records an event with the
       admin as actor.
-- [ ] Each action sends the owner its alert. Email-less owners are skipped
+- [x] Each action sends the owner its alert. Email-less owners are skipped
       silently.
-- [ ] Selecting yourself or another superuser skips them, and the warning
+- [x] Selecting yourself or another superuser skips them, and the warning
       names them.
-- [ ] Clearing a cooldown lets the user sign in at once. Earlier failures
+- [x] Clearing a cooldown lets the user sign in at once. Earlier failures
       no longer count.
-- [ ] A locked user's existing session is signed out and sign-in is
+- [x] A locked user's existing session is signed out and sign-in is
       refused with the generic message. Unlock restores access.
-- [ ] Staff who aren't superusers can't run any of the actions.
+- [x] Staff who aren't superusers can't run any of the actions.
+
+Built with four details the plan didn't spell out. An action with nothing
+to change (two-factor already off, nothing to clear, already locked or
+unlocked, no email for a reset link) leaves the account alone, records and
+sends nothing, and says so in its own message beside "done" and
+"skipped". The reset link's own email says support sent it and is the
+owner's notice, so no second alert goes with it; locked accounts get no
+link, as on the reset page. Locking also removes the account's device rows
+and rotates its session key, so a session from before the lock stays
+signed out after an unlock. Clearing works on failures short of a pause
+too, and restarts the pause ladder. `security.reset_two_factor` doesn't
+refuse superusers itself (the guardrail is `overridable`'s), so phase 18's
+`reset_2fa` can call it with no actor.
 
 ---
 

@@ -18,6 +18,9 @@ the code step of signing in, a code in place of the password as proof,
 replacing recovery codes and turning two-factor off, the owner's
 choice to be asked for a code at checkout and on security changes, and
 the rule that keeps a superuser without two-factor on the setup page.
+Last come the overrides a superuser applies to other accounts from the
+admin: verifying an email, resetting two-factor, clearing a cooldown,
+locking and unlocking, and sending a reset link.
 
 The audit log is the source of truth for more than the admin's history
 page. The cooldown counts failures from it, the Account page's activity
@@ -40,7 +43,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import pyotp
 import segno
+from django.conf import settings
 from django.contrib.auth import logout, update_session_auth_hash
+from django.contrib.auth.tokens import default_token_generator
+from django.contrib.sites.shortcuts import get_current_site
 from django.core import signing
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
@@ -49,6 +55,8 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 
 from .models import RecoveryCode, SecurityEvent, TwoFactorDevice, User, UserSession
 
@@ -965,6 +973,190 @@ def overridable(admin: User, users: Iterable[User]) -> tuple[list[User], list[Us
         else:
             allowed.append(user)
     return allowed, skipped
+
+
+# --- Superuser overrides ------------------------------------------------------------
+#
+# What an admin can do to someone else's account from the user list,
+# beside ``mark_email_verified`` above. Each one records its event with
+# the admin as actor and emails the owner, who reads it as "ThoughtTronix
+# support" and never learns which admin. Each changes nothing, and
+# records and sends nothing, when there is nothing to change. Who may be
+# overridden is ``overridable``'s decision, made by the caller first;
+# these functions don't refuse superusers, so the server's own
+# break-glass command can use them too.
+
+
+def reset_two_factor(
+    user: User,
+    *,
+    actor: User | None = None,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Take two-factor off ``user``'s account for them, and tell them.
+
+    For an owner who has lost both their phone and their recovery codes.
+    The device goes, with any choices of when to be asked for a code, and
+    every recovery code goes too, so the next sign-in takes the password
+    alone and the owner can set two-factor up afresh. ``actor`` is the
+    admin, or ``None`` from a server-side command. Unlike
+    ``disable_two_factor`` it needs no code and works on any account.
+    Returns whether two-factor was on to reset.
+    """
+    if not user.two_factor_enabled:
+        return False
+    at = at or timezone.now()
+    with transaction.atomic():
+        TwoFactorDevice.objects.filter(user=user).delete()
+        user.recovery_codes.all().delete()
+    record_event(Kind.TWO_FACTOR_RESET, user, actor=actor, request=request, at=at)
+    send_alert(
+        user,
+        "Two-factor authentication was reset",
+        (
+            "ThoughtTronix support reset two-factor authentication on your "
+            "account. Signing in now takes only your password, and your old "
+            "recovery codes no longer work. You can turn two-factor on again "
+            "from your Account page."
+        ),
+        at=at,
+    )
+    return True
+
+
+def clear_cooldown(
+    user: User,
+    *,
+    actor: User,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Lift ``user``'s sign-in pause and forget their failed attempts, and tell them.
+
+    The "cooldown cleared" event is itself what clears it: failures and
+    pauses from before it no longer count (see ``RESET_KINDS``), so the
+    owner can sign in at once, the next pause needs five fresh failures,
+    and it starts at the bottom of the ladder. Nothing is deleted from the
+    audit log. An account with no failures or pauses that still count is
+    left alone. Returns whether there was anything to clear.
+    """
+    at = at or timezone.now()
+    if sign_in_standing(user, now=at) == _standing([], [], at):
+        return False
+    record_event(Kind.COOLDOWN_CLEARED, user, actor=actor, request=request, at=at)
+    send_alert(
+        user,
+        "Sign-in to your account was unpaused",
+        (
+            "ThoughtTronix support cleared the failed sign-in attempts on your "
+            "account, so sign-in isn't paused and you can sign in now. Your "
+            "password has not been changed."
+        ),
+        at=at,
+    )
+    return True
+
+
+def lock_account(
+    user: User,
+    *,
+    actor: User,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Lock ``user`` out until an admin unlocks them, and tell them.
+
+    Locked is ``is_active = False``: the sign-in backend refuses the
+    account with the same message as a wrong password, and Django treats
+    its sessions as signed out. Every device row goes and the session key
+    is rotated as well, so those sessions stay signed out after an
+    unlock rather than coming back to life. An account already locked is
+    left alone. Returns whether it was locked now.
+    """
+    if not user.is_active:
+        return False
+    at = at or timezone.now()
+    with transaction.atomic():
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        user.user_sessions.all().delete()
+        user.rotate_session_key()
+    record_event(Kind.ACCOUNT_LOCKED, user, actor=actor, request=request, at=at)
+    send_alert(
+        user,
+        "Your account was locked",
+        (
+            "ThoughtTronix support locked your account. Every device signed "
+            "in to it was signed out, and it can't be signed in to until "
+            "support unlocks it."
+        ),
+        at=at,
+    )
+    return True
+
+
+def unlock_account(
+    user: User,
+    *,
+    actor: User,
+    request: HttpRequest | None = None,
+    at: datetime | None = None,
+) -> bool:
+    """Let a locked ``user`` sign in again, and tell them.
+
+    The password is unchanged, and any sign-in pause is left as it was:
+    clearing it is a separate override. An account that isn't locked is
+    left alone. Returns whether it was unlocked now.
+    """
+    if user.is_active:
+        return False
+    at = at or timezone.now()
+    user.is_active = True
+    user.save(update_fields=["is_active"])
+    record_event(Kind.ACCOUNT_UNLOCKED, user, actor=actor, request=request, at=at)
+    send_alert(
+        user,
+        "Your account was unlocked",
+        (
+            "ThoughtTronix support unlocked your account. You can sign in "
+            "again with your usual password."
+        ),
+        at=at,
+    )
+    return True
+
+
+def send_password_reset(user: User, *, actor: User, request: HttpRequest) -> bool:
+    """Email ``user`` the same reset link the reset page would, and record it.
+
+    The admin never sees or sets the password. The link is Django's, from
+    the same token generator and templates as the reset page, so it works
+    once, dies when the password changes and lasts
+    ``PASSWORD_RESET_TIMEOUT``. The email says support sent it; it is the
+    owner's notice, so no separate alert goes with it. An account with no
+    email, or a locked one (which the reset page would ignore too), is
+    left alone. Returns whether a link was sent.
+    """
+    if not user.email or not user.is_active:
+        return False
+    site = get_current_site(request)
+    context = {
+        "email": user.email,
+        "domain": site.domain,
+        "site_name": site.name,
+        "uid": urlsafe_base64_encode(force_bytes(user.pk)),
+        "user": user,
+        "token": default_token_generator.make_token(user),
+        "protocol": "https" if request.is_secure() else "http",
+        "hours": settings.PASSWORD_RESET_TIMEOUT // 3600,
+        "by_support": True,
+    }
+    subject = render_to_string("accounts/email/password_reset_subject.txt", context)
+    body = render_to_string("accounts/email/password_reset.txt", context)
+    send_mail("".join(subject.splitlines()), body, None, [user.email])
+    record_event(Kind.PASSWORD_RESET_REQUESTED, user, actor=actor, request=request)
+    return True
 
 
 def _hours(duration: timedelta) -> int:

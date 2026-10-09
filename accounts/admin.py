@@ -61,9 +61,11 @@ class UserAdmin(DjangoUserAdmin):
     """Django's user admin, plus the superuser overrides.
 
     Overrides are admin actions gated on ``is_superuser`` alone, so no
-    model permission can hand them to other staff. Each one skips the
-    acting admin's own account and every superuser (see
-    ``security.overridable``), and the security work is
+    model permission can hand them to other staff: mark email verified,
+    reset two-factor, clear sign-in cooldown, lock, unlock and send a
+    password reset link. Each one skips the acting admin's own account
+    and every superuser (see ``security.overridable``), and the security
+    work, the audit event and the owner's email are
     ``accounts.security``'s.
 
     Superusers also see each account's security state as list columns
@@ -77,7 +79,14 @@ class UserAdmin(DjangoUserAdmin):
     )
     readonly_fields = ("email_verified_at",)
     list_display = ("username", "email", "job_title", "is_staff")
-    actions = ["mark_email_verified"]
+    actions = [
+        "mark_email_verified",
+        "reset_two_factor",
+        "clear_cooldown",
+        "lock_account",
+        "unlock_account",
+        "send_password_reset",
+    ]
 
     def has_override_permission(self, request):
         return request.user.is_active and request.user.is_superuser
@@ -150,18 +159,81 @@ class UserAdmin(DjangoUserAdmin):
 
     @admin.action(description="Mark email verified", permissions=["override"])
     def mark_email_verified(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.mark_email_verified,
+            done="Marked verified",
+            unchanged="Already verified or no email, so left alone",
+        )
+
+    @admin.action(description="Reset two-factor", permissions=["override"])
+    def reset_two_factor(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.reset_two_factor,
+            done="Two-factor reset",
+            unchanged="Two-factor wasn't on, so left alone",
+        )
+
+    @admin.action(description="Clear sign-in cooldown", permissions=["override"])
+    def clear_cooldown(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.clear_cooldown,
+            done="Cooldown cleared",
+            unchanged="No failed sign-ins to clear, so left alone",
+        )
+
+    @admin.action(description="Lock account", permissions=["override"])
+    def lock_account(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.lock_account,
+            done="Locked",
+            unchanged="Already locked, so left alone",
+        )
+
+    @admin.action(description="Unlock account", permissions=["override"])
+    def unlock_account(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.unlock_account,
+            done="Unlocked",
+            unchanged="Not locked, so left alone",
+        )
+
+    @admin.action(description="Send password reset link", permissions=["override"])
+    def send_password_reset(self, request, queryset):
+        self._override(
+            request,
+            queryset,
+            security.send_password_reset,
+            done="Reset link sent",
+            unchanged="No email or locked, so no link sent",
+        )
+
+    def _override(self, request, queryset, apply, *, done, unchanged):
+        """Apply one override to every selected account it may touch, and report.
+
+        ``apply`` is the ``accounts.security`` function, called with the
+        admin as actor; it returns whether it changed anything. The
+        message names who was changed, who was left alone, and who was
+        skipped by the guardrail.
+        """
         allowed, skipped = security.overridable(request.user, queryset)
-        verified = [
-            user
-            for user in allowed
-            if security.mark_email_verified(user, actor=request.user, request=request)
+        changed = [
+            user for user in allowed if apply(user, actor=request.user, request=request)
         ]
-        self._report(request, "Marked verified", verified)
-        unchanged = [user for user in allowed if user not in verified]
+        self._report(request, done, changed)
         self._report(
             request,
-            "Already verified or no email, so left alone",
             unchanged,
+            [user for user in allowed if user not in changed],
             messages.INFO,
         )
         self._report(

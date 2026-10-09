@@ -30,6 +30,82 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-09 — Account security, Phase 16: admin override actions
+
+### Prompts
+
+1. "@plans/account-security.md @prd/account-security.md Implement phase 16"
+2. "How can I test this in the browser"
+3. "append conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** Prompt 1 built phase 16 of `plans/account-security.md` and
+  ticked its six acceptance criteria:
+  - **The security module.** Five override functions sit beside
+    `overridable` in `accounts/security.py`: `reset_two_factor` (deletes
+    the device and recovery codes), `clear_cooldown` (records "cooldown
+    cleared", which `RESET_KINDS` already treats as a reset point),
+    `lock_account` and `unlock_account` (`is_active`), and
+    `send_password_reset`, which sends Django's own token link through the
+    reset page's templates. Each records its event with the admin as actor
+    and emails the owner through `send_alert`. The owner reads it as
+    "ThoughtTronix support". The module docstring lists them.
+  - **The admin.** `UserAdmin` has all six actions, still gated on
+    `is_superuser` alone. One `_override` helper runs each one through
+    `security.overridable` and reports who was changed, who was left
+    alone and who was skipped. "Mark email verified" now uses that helper
+    too, and its messages are unchanged.
+  - **The reset email.** The reset email template has a `by_support`
+    branch, so a link sent from the admin says support sent it. The
+    public reset page's wording is unchanged.
+  - **Tests.** `accounts/test_admin_overrides.py` has 42 tests. They cover
+    each action's state change, event and email; email-less owners; and
+    clearing a cooldown, then signing in and failing four more times
+    without a new pause. They also check that locking signs out a live
+    session and gets the generic sign-in message, that unlocking restores
+    access while a session from before the lock stays signed out, and
+    that a reset link sent from the admin works end to end. Several tests
+    run once for each action: the admin is recorded as actor, yourself and
+    other superusers are skipped by name, and staff with `change_user`
+    can't run any of them.
+- **Prompt 2** got a browser walkthrough with no code changes. It uses
+  the seeded `admin` in one window and `customer` in a private one, and
+  covers each action, the left-alone and skipped messages, staff with
+  user permissions seeing no actions, the audit log filtered by actor,
+  and reseeding before `db.sqlite3` is committed.
+
+- **Deviations:**
+  - No questions were asked. Five choices the plan didn't cover were
+    made, reported, and noted under phase 16 in the plan:
+    - An action with nothing to change leaves the account alone and says
+      so.
+    - The admin's reset email is the owner's notice, with no second
+      alert, and locked accounts get no link.
+    - Locking also removes device rows and rotates the session key, so
+      old sessions don't come back after an unlock.
+    - Clearing also clears failures short of a pause and restarts the
+      pause ladder.
+    - `reset_two_factor` doesn't refuse superusers itself, so phase 18's
+      `reset_2fa` can reuse it.
+  - Nothing was committed or opened in a browser. A PROMPTS.md entry was
+    only written when prompt 3 asked for one.
+
+- **Sideways:**
+  - **One test was wrong on the first run** (41 of 42 passed). The
+    clear-cooldown test expected exactly one email, but pausing the
+    account had already sent the pause email. The test now clears the
+    outbox after pausing. That test wasn't re-run on its own afterwards.
+  - **The test admin's name was changed before the first run.** The
+    username was "ada", which is a substring of ordinary words like
+    "readable", so "the admin isn't named" checks on pages could have
+    failed by accident. It became `ada_admin`.
+  - **The full suite has no result yet.** `uv run python -m pytest` was
+    used, as in earlier phases, because `uv run pytest` is blocked by
+    Application Control. The user backgrounded the run. Ruff format and
+    ruff check passed in it, but pytest was still running when prompts 1
+    to 3 were answered, so whether the suite is green isn't known.
+
 ## 2026-10-09 — Account security, Phase 15: admin visibility
 
 ### Prompts
