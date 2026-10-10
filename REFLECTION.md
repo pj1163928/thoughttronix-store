@@ -149,5 +149,134 @@ The browser requests the image on the detail page.
 
 Product cards in the catalog use `card_image` rather than `display_image`.
 
+# Account Security Center
+
+## 1. Phase Review
+
+In total, I completed **18 phases**, some of which were longer than others.
+
+One of the most important sections was **Phase 5**. The goal of this phase was to create a separate, organized page that could be expanded with additional settings as the project developed.
+
+Initially, this page did not exist. My first test was to ensure that it loaded correctly and that the basic settings were available, including:
+
+- User information
+- Account verification status
+- Personal audit log
+
+I then tested each of these features and confirmed that **all of them updated properly in real time**.
+
+## 2. Authentication Code
+
+### A. Sign-Up Section
+
+This section uses Django's built-in `UserCreationForm`, which handles usernames, passwords, and validation.
+
+The form includes the following customizations:
+
+- **Model connection:** `Meta.model = User` connects the form to the user model.
+- **Initialization (`__init__`):** Adds DaisyUI classes to the form fields and makes the email field required.
+- **Email validation (`clean_email()`):** Rejects email addresses that are already in use.
+
+These features were referenced in the lesson.
+
+**Code locations:**
+- `accounts/forms.py:19`
+- `accounts/views.py:51`
+
+### B. User Model
+
+The user model is likely the most important part of the user-management process.
+
+It uses Django's standard user fields, including:
+
+- Username
+- Password
+- Email address
+
+These fields are defined in `accounts/models.py:109`.
+
+The implementation extends the lesson's `AbstractUser` approach, providing a customizable user model that can be adapted to the needs of the application.
+
+To activate this custom user model, I configured the following setting in `config/settings.py:98`:
+
+```python
+AUTH_USER_MODEL = "accounts.User"
+```
+
+This allows ThoughTronix to retain Django's default authentication functionality while using my custom user model.
+
+To locate or associate a user account, the application uses:
+
+`accounts/models.py:95` — `UserManager.get_by_identifier()`
+
+## 3. Password Management
+
+One of the areas I focused on extensively was **individual password changes**, which can be performed by users and administrators with several safeguards in place.
+
+### Django's Default Password Change Process
+
+Django uses the following views in its standard password-change process:
+
+- `password_change`
+- `password_change/done/`
+
+Django's standard URL convention differs from my implementation. My application defines the password-change route in `accounts/urls.py` using the `password/` path and the `accounts:password:change` URL name. It does not use a separate `done` URL.
+
+Django uses `SetPasswordMixin` to validate that the two password entries match, apply password validation rules, and store the password as a hash.
+
+Django also maintains the active session after a password change, while other sessions are invalidated because their session authentication hashes no longer match.
+
+### My Custom Password Change Process
+
+My implementation uses a different approach. Instead of relying solely on Django's standard password-change form, it verifies the current password through `security.confirm_identity`.
+
+It also includes additional security measures:
+
+- Tracks password-change attempts.
+- Uses two-factor authentication (2FA).
+- Logs sensitive account changes.
+- Emails the account owner about sensitive changes.
+
+Rather than simply redirecting the user to Django's default completion page, my implementation incorporates these additional security checks and notifications.
+
+### Code Locations
+
+**Django's password-change view:**
+
+```text
+.venv/Lib/site-packages/django/contrib/auth/views.py
+```
+
+This view uses decorators such as `login_required` and `csrf_protect`.
+
+**My custom password-change view:**
+
+```text
+accounts/views.py:454
+```
+
+The custom view uses my password-change form and integrates it into multiple custom security sections and layers.
+
+## 4. Tracer Bullet Explanation
+
+One of the phases I implemented was **offline 2FA enrollment**.
+
+Claude explained that this feature was relatively lightweight and straightforward to implement. For the most part, it relied on the security logic in `accounts/security.py`.
+
+This phase was important because it allowed me to confirm and test that:
+
+- Two-factor authentication worked correctly.
+- Authentication codes synchronized properly.
+- Valid codes were accepted.
+
+Having this functionality established provided a strong foundation for the rest of the implementation. Once the core functionality was complete, the remaining work primarily involved connecting the components and adding a few additional rules.
+
+### Final Result
+
+After completing this phase, I had:
+
+- A basic 2FA settings section integrated into the Account Security Center created earlier.
+- A way for users to enable and disable two-factor authentication.
+- A foundation for expanding the account security features in later phases.
 ### Disclaimer
 ChatGPT was used to format the MD text readability, wording and choice of thought is entirely humanly generated.
