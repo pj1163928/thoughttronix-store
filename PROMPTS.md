@@ -30,6 +30,190 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-14 — Product reviews: phased plan written from the PRD (no code)
+
+### Prompts
+
+1. The `/prd-to-plan` skill, given `@prd/product-reviews.md`.
+2. "The plan looks good go ahead and write the changes to the plans
+   directory and append the conversation log to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** wrote `plans/product-reviews.md`, with 12 tracer-bullet
+  phases, following the shape of `plans/account-security.md`. Before
+  proposing the phases, I read the PRD, `HANDOFF.md`,
+  `docs/WISHLIST.md`, `ProductQuerySet`, the catalog views, the
+  dashboard queries, the back-office tab rail and the URL configs. The
+  phases are: write a review (tracer); the section and summary; author
+  edit; author delete; Show more and sort; catalog ratings; staff edit
+  on the product page; staff remove and the removed states; the
+  Reviews tab's list and filters; its actions; the dashboard card; and
+  documentation. Every one of the PRD's 50 user stories is assigned to
+  a phase. No code changed.
+- **Decisions the plan adds** (the PRD left them open):
+  - URL paths for the PRD's route names: public actions under
+    `/reviews/…`, and the Reviews tab at `/backoffice/reviews/`
+  - the querystring parameter names: `sort=rating` and `min_rating=4` on
+    the catalog; `sort` and `page` on the review list; `product`,
+    `rating`, `author`, `status` and `page` on the Reviews tab
+  - the seed grows phase by phase, not in one phase at the end, so each
+    phase can be demoed with seeded data: base reviews and Emory's staff
+    review in phase 2, the staff-edited review in phase 7, the removed
+    review in phase 8
+- **Deviations:** none. I proposed the breakdown, pointed out the
+  easiest merges (author edit with delete, and the two Reviews-tab
+  phases), and the user approved it unchanged.
+- **Sideways:** nothing went wrong.
+
+---
+
+## 2026-10-14 — Product reviews: PRD written from the handoff (no code)
+
+### Prompts
+
+1. The `/to-prd` skill, given `@HANDOFF.md`.
+2. "Append conversation to PROMPTS.md"
+
+### Summary
+
+- **Outcome:** wrote `prd/product-reviews.md` from `HANDOFF.md`, following
+  the shape of `prd/account-security.md`. It has 50 user stories, the
+  implementation decisions, out-of-scope items and testing priorities.
+  Before writing, I read the existing account-security PRD,
+  `docs/WISHLIST.md`, the catalog view, `ProductQuerySet` and the
+  dashboard queries. That showed the catalog has no sort parameter yet,
+  that category pages inherit the catalog's filters, that the dashboard
+  uses a `since` period start, and that the back-office order list shows
+  20 per page. No code changed.
+- **Decisions the handoff left open** (marked **(PRD-stage)** in the PRD
+  for the user to confirm):
+  - a review edited by both its author and staff shows only the staff
+    label
+  - "Verified purchase" stays after a later cancellation
+  - the product page and the Reviews tab share partials
+  - the Reviews tab shows 20 per page, with author username and full name
+  - a proposed set of `reviews:` URL names
+  - pagination and filter controls keep the new rating parameters, and a
+    test covers combining ratings with the tag filter
+  - an empty dashboard period shows a dash for the average
+  - seeded reviews get varied dates
+  - an author deleting a removed review's text bypasses the 10-character
+    comment minimum
+
+  I also added out-of-scope items the handoff didn't list: photos on
+  reviews, replies to reviews, and showing an author the text of their
+  removed review.
+- **Deviations:** none. The skill writes without interviewing, and the
+  user asked no follow-up questions.
+- **Sideways:** a draft note in the PRD said to record the new endpoints
+  in an "HTMX inventory" in `docs/TEMPLATES.md`. A grep showed that file
+  has no such list, so I changed the note before finishing: the endpoints
+  go in `docs/REVIEWS.md`, as the wishlist's are in `docs/WISHLIST.md`.
+
+---
+
+## 2026-10-14 — Product reviews: design interview (no code)
+
+### Prompts
+
+1. The `/grill-me` skill, given: "I would like you to start development of
+   a product review system for the ThoughtTronix storefront. The following
+   features must be present and are required as part of the product review
+   system, all other features may be decided upon through further
+   questioning and because of said questioning:
+   - A customer may leave one and only one review per product.
+   - Each review is comprised of a rating and a written comment.
+   - A customer may only leave a review for a product they have purchased.
+   - Customers may edit or delete reviews only belonging to them.
+   - Staff may edit or delete any review
+   - Creating, editing or otherwise changing a review in any way should
+     result in a smooth update without full page reloads, this prevents the
+     customer from losing their place.
+
+   Please do not implement changes after the conversation, but I would
+   rather access the HANDOFF skill to save the conversation, also append
+   any conversation logs including this one and all resulting messages to
+   PROMPTS.md according to the provided formatting."
+2. Q1, which order statuses count as a purchase: "A" (any non-cancelled).
+3. Q2, a review whose order is later cancelled: "B" (keep it; the author
+   keeps edit/delete).
+4. Q3, rating format: "B" (half stars).
+5. Q4, lowest rating: "B" (1.0–5.0).
+6. Q5, rating storage: "A" (whole number of half-stars, 2–10).
+7. Q6, written part: "C" (optional headline + comment).
+8. Q7, lengths: "A" (comment 10–2,000; headline ≤ 100).
+9. Q8, placement: "A" (full-width section below the product grid).
+10. Q9, the slot for people who can't review: "A" (explain; sign-in link).
+11. Q10, reviewer name: "A" (first name + last initial).
+12. Q11, order and paging: "C" (Show more + Newest/Highest/Lowest sort).
+13. Q12, moderation timing: "A" (publish immediately).
+14. Q13, where staff moderate: "C" (product page and a back-office tab).
+15. Q14, what staff may edit: "A" (headline and comment; rating locked).
+16. Q15, edit labels: "A" (label author and staff edits differently).
+17. Q16, delete semantics: "B" (author deletes for real; staff removes).
+18. Q17, ratings outside the product page: "C" (catalog cards, sort,
+    4-stars-and-up filter).
+19. Q18, how the catalog reaches ratings: "A" (`with_ratings()` annotation).
+20. Q19, staff writing reviews: "B" (allowed, labelled).
+21. Q20, staff reviews in averages: "B" (excluded).
+22. Q21, confirming a delete: "A" (inline HTMX confirm).
+23. Q22, seed data: "A" (every state, plus one order for `employee`).
+24. Q23, dashboard: "B" (one reviews card).
+25. Q24, Django admin: "A" (not registered, with a test).
+26. Q25, author deleting a staff-removed review: "B" (blank the text, keep
+    the row).
+27. Final check, defaults and handoff: "A".
+
+### Summary
+
+- **Outcome:** a 25-question design interview for a product review system,
+  plus a final check. No code changed. The decisions are recorded in
+  `HANDOFF.md` (written by following `.claude/skills/handoff/SKILL.md`) for
+  the next session to turn into `prd/product-reviews.md` and
+  `plans/product-reviews.md`. In outline:
+  - a new `reviews/` app with half-star ratings stored as 2–10
+  - purchase-gated creation only
+  - publish-immediately with staff moderation (rating locked; public
+    "Edited by staff" label; soft removal with Restore)
+  - HTMX throughout
+  - catalog stars, sort and filter computed by a `products` annotation
+    that never imports `reviews`
+  - staff reviews labelled and excluded from every number
+  - a dashboard card and a full-state seed
+- **Where reading the code beat asking:**
+  - The username is a sign-in identifier (`accounts/backends.py`), which
+    decided against showing it on public reviews.
+  - The seeded `employee` had no orders, so demoing staff reviews needed
+    one more seeded order.
+  - `DiscountCodeQuerySet.with_usage()` was the precedent for computing
+    ratings from rows rather than storing a running total.
+- **Deviations:** seven answers differed from my recommendation:
+  - Q3: half stars rather than whole
+  - Q4: a 1.0 floor rather than 0.5
+  - Q6: an optional headline rather than comment only
+  - Q11: a sort menu as well as Show more
+  - Q17: catalog sort and filter, not just stars
+  - Q19: staff may review
+  - Q23: a dashboard card rather than none
+
+  Three of these created follow-up questions: Q17 crossed the app
+  boundary, so Q18 decided how; Q19 raised whether staff reviews count,
+  so Q20; Q16 plus the "customers may delete" requirement conflicted, so
+  Q25. Q16 and Q25 are where the requirement "customers may delete" needed
+  interpreting: a staff-removed review's text can be erased by its
+  author, but the row stays to stop reposting.
+- **Sideways:**
+  - In Q3 I said a half-star picker would be hard to build without
+    JavaScript. That was wrong: DaisyUI's `rating-half` is radio-based. I
+    corrected it at the start of Q4, after the answer had been given.
+  - The handoff skill is user-invoke-only (`disable-model-invocation`),
+    so it couldn't be called as a tool. I followed its SKILL.md by hand
+    instead.
+  - Writing this entry, my first edit replaced the previous entry's
+    heading line by mistake. I restored it immediately; no other text
+    was touched.
+
 ## 2026-10-09 — Account security, Phase 18: break-glass, settings and documentation
 
 ### Prompts
