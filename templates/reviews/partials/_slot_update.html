@@ -1,0 +1,6 @@
+{# The answer to a change in the viewer's own review: the "Your review" slot, plus the #}
+{# section summary and the details-card average swapped out of band, so every number #}
+{# on the page moves in the same moment. #}
+{% include "reviews/partials/_your_review.html" %}
+{% include "reviews/partials/_reviews_summary.html" with oob=True %}
+{% include "reviews/partials/_details_rating.html" with oob=True %}

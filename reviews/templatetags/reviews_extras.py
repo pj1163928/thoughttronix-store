@@ -1,6 +1,7 @@
 from django import template
 
-from reviews.views import slot_context
+from reviews.models import Review
+from reviews.views import section_context
 
 register = template.Library()
 
@@ -14,20 +15,28 @@ def reviews_section(context, product):
     """
     request = context["request"]
     return {
-        **slot_context(request.user, product),
+        **section_context(request.user, product),
         "user": request.user,
         "request": request,
     }
 
 
+@register.inclusion_tag("reviews/partials/_details_rating.html")
+def review_rating(product):
+    """The details card's small customer average and count, linking to the section."""
+    return {"summary": Review.objects.filter(product=product).rating_summary()}
+
+
 @register.filter
 def half_stars(rating):
-    """The ten half-star positions of a stored rating, each lit or not.
+    """The ten half-star positions of a rating in half stars, drawn as five stars.
 
     For a read-only star row: ``half`` is which half of its star a
-    position draws (1 left, 2 right).
+    position draws (1 left, 2 right), and ``current`` marks the last lit
+    half. DaisyUI's ``rating`` lights that position and every one before
+    it, and leaves the rest faint.
     """
     return [
-        {"half": 1 if position % 2 else 2, "lit": position <= rating}
+        {"half": 1 if position % 2 else 2, "current": position == rating}
         for position in range(1, 11)
     ]

@@ -1,0 +1,13 @@
+{# The Reviews section's customer average and count, from the counted set only. #}
+{# Include with oob=True to swap it out of band after a review changes. #}
+<div id="reviews-summary" class="mt-3 flex flex-wrap items-center gap-3"
+     {% if oob %}hx-swap-oob="true"{% endif %}>
+  {% if summary.count %}
+    {% with label="Average "|add:summary.average_display|add:" out of 5 stars" %}
+      {% include "reviews/partials/_stars.html" with rating=summary.half_stars label=label size="md" only %}
+    {% endwith %}
+    <p class="text-lg">{{ summary.average_display }} from {{ summary.count }} customer review{{ summary.count|pluralize }}</p>
+  {% else %}
+    <p class="opacity-70">No customer reviews yet</p>
+  {% endif %}
+</div>

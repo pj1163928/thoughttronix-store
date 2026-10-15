@@ -151,18 +151,18 @@ from 52 to 53.
 
 ### Acceptance criteria
 
-- [ ] A visitor sees the summary and the list without signing in.
-- [ ] A product with only staff reviews reads "No customer reviews yet"
+- [x] A visitor sees the summary and the list without signing in.
+- [x] A product with only staff reviews reads "No customer reviews yet"
       and still lists the staff reviews, badged.
-- [ ] The reviewer name is first name and last initial, or "A
+- [x] The reviewer name is first name and last initial, or "A
       ThoughtTronix customer" without a first name; neither the username
       nor the full name appears.
-- [ ] The viewer's own review appears in the slot and not in the list.
-- [ ] A create response carries the slot plus out-of-band summary and
+- [x] The viewer's own review appears in the slot and not in the list.
+- [x] A create response carries the slot plus out-of-band summary and
       details-card average.
-- [ ] `by_staff` doesn't change when the author later gains or loses
+- [x] `by_staff` doesn't change when the author later gains or loses
       `is_staff`.
-- [ ] `seed` runs twice cleanly. Every seeded review's author holds a
+- [x] `seed` runs twice cleanly. Every seeded review's author holds a
       non-cancelled order for its product, Casey has reviewed DreamWeaver
       and nothing else, Emory has one staff review, and there are 53
       orders.

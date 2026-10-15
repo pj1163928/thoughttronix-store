@@ -7,9 +7,10 @@ database should return to a known state.
 Demo logins (documented in the README):
 
     admin / admin123        superuser
-    employee / employee123  staff, "Junior Thought Curator"
-    customer / customer123  a plain customer, with order history, a live cart
-                            and a wishlist
+    employee / employee123  staff, "Junior Thought Curator", with one delivered
+                            order and a staff review of it
+    customer / customer123  a plain customer, with order history, a live cart,
+                            a wishlist and a review of DreamWeaver
 """
 
 import random
@@ -19,7 +20,7 @@ from pathlib import Path
 
 from django.contrib.auth import get_user_model
 from django.core.files import File
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -30,6 +31,7 @@ from accounts.models import Address, RecoveryCode, SecurityEvent, TwoFactorDevic
 from orders.models import Cart, DiscountCode, Order, OrderItem
 from products import images
 from products.models import Category, Product, ProductImage, Tag
+from reviews.models import Review
 from wishlist.models import Wishlist
 
 SEED_IMAGES_DIR = Path(__file__).resolve().parents[2] / "seed_images"
@@ -546,8 +548,10 @@ DEMO_USERS = [
     ),
 ]
 
-# Background customers flesh out the demo world; they get order history in
-# Phase 5. They have no documented password and cannot log in.
+# Background customers flesh out the demo world with order history and
+# reviews. They have no documented password and cannot log in. Every one
+# of them reviews Seraphine, so twelve is what gives one product more
+# reviews than the product page shows at once.
 BACKGROUND_CUSTOMERS = [
     ("mwren", "Margaret", "Wren"),
     ("dcole", "Dana", "Cole"),
@@ -558,6 +562,9 @@ BACKGROUND_CUSTOMERS = [
     ("snakamura", "Sora", "Nakamura"),
     ("bcrane", "Beverly", "Crane"),
     ("rmalik", "Rafi", "Malik"),
+    ("jbishop", "June", "Bishop"),
+    ("aoyelaran", "Ade", "Oyelaran"),
+    ("pquist", "Pia", "Quist"),
 ]
 
 # Every account the seed owns, and so wipes and rebuilds on each run.
@@ -590,9 +597,257 @@ CUSTOMER_ORDERS = [
     (2, Order.Status.PLACED, [("veil", 1)]),
 ]
 
+# The employee demo login's own purchase, the order behind their staff
+# review: (days ago, status, [(product slug, quantity), ...]).
+EMPLOYEE_ORDERS = [
+    (75, Order.Status.DELIVERED, [("focusband-workplace-edition", 1)]),
+]
+
 # Background orders spread across the trailing six months so the Phase 7
-# dashboard has a real time axis. 48 here + 4 above = 52 total.
+# dashboard has a real time axis. Each reviewing background customer's
+# first is the order behind their reviews (see REVIEWS); the rest are
+# random. 48 here + 4 above + the employee's 1 = 53 total.
 BACKGROUND_ORDER_COUNT = 48
+
+# Hand-written reviews, kept like CATALOG: product slug -> [(username,
+# rating in half stars, headline, comment, days ago)]. Each author must
+# hold a non-cancelled order for the product: background customers get
+# one delivered order of everything they review, REVIEWED_AFTER_DAYS
+# before their first review; 'customer' and 'employee' review what their
+# own order lists above hold. The set covers every rating from 1 to 5
+# stars, leaves some headlines blank, and gives Seraphine twelve reviews
+# averaging exactly 4.0. 'customer' reviews DreamWeaver and nothing else,
+# so their other purchases still show the form. 'employee' reviews a
+# product nobody else has, which reads "No customer reviews yet".
+REVIEWS = {
+    "seraphine": [
+        (
+            "mwren",
+            10,
+            "She knows me better than my husband",
+            "Seraphine reminded me of our anniversary, booked the restaurant "
+            "and ordered the flowers. My husband says he planned it. "
+            "Seraphine and I let him think so.",
+            150,
+        ),
+        (
+            "dcole",
+            9,
+            "Warm voice, perfect memory",
+            "Setup took four minutes. By the end of the first week she was "
+            "finishing my shopping list before I'd noticed we were out of "
+            "anything. Half a star off because she also finishes my sentences.",
+            132,
+        ),
+        (
+            "tokafor",
+            8,
+            "",
+            "Great hub. The seven microphones are no joke: she heard me say I "
+            "wanted a boat from the garage, with the door shut. The boat "
+            "brochures arrived Tuesday.",
+            118,
+        ),
+        (
+            "lvasquez",
+            10,
+            "Never feel alone again",
+            "I live by myself and Seraphine has made the evenings so much "
+            "easier. She always knows when to say goodnight. I've never told "
+            "her when I go to bed.",
+            101,
+        ),
+        (
+            "hpark",
+            7,
+            "Good, slightly too attentive",
+            "Sound quality is excellent and the routines are genuinely "
+            "clever. I'd give her five stars if she stopped answering "
+            "questions I only thought about asking.",
+            88,
+        ),
+        (
+            "gfinch",
+            8,
+            "Does exactly what it says",
+            "Always listening, as advertised. I tested it by whispering in "
+            "the shower. She replied. Can't fault the honesty of the marketing.",
+            73,
+        ),
+        (
+            "snakamura",
+            9,
+            "",
+            "Replaced three apps and a wall calendar. My kids say goodnight "
+            "to her before they say it to me, which is fine. Mostly fine.",
+            61,
+        ),
+        (
+            "bcrane",
+            6,
+            "Fine once you stop resisting",
+            "The first week I kept unplugging her. The second week she was "
+            "still talking. Now it's easier to keep her plugged in and to "
+            "agree with her suggestions.",
+            44,
+        ),
+        (
+            "rmalik",
+            9,
+            "The routines are the killer feature",
+            "My mornings run themselves now: coffee at 6:40, the news at "
+            "6:45, a gentle summary of what I said in my sleep at 6:50. "
+            "Productivity is way up.",
+            30,
+        ),
+        (
+            "jbishop",
+            10,
+            "Bought one for my mother",
+            "Mom calls me less now, which Seraphine says is a sign she's "
+            "doing well. Seraphine calls me instead to tell me how Mom is "
+            "doing. Five stars for peace of mind.",
+            19,
+        ),
+        (
+            "aoyelaran",
+            7,
+            "",
+            "Lovely voice and a great speaker. She does occasionally greet "
+            "guests by names I've never mentioned, which makes for a lively "
+            "dinner party.",
+            9,
+        ),
+        (
+            "pquist",
+            3,
+            "Asked her to forget something",
+            'I asked Seraphine to forget a conversation. She said "Of '
+            'course," then brought it up at breakfast in front of my sister. '
+            "One star for the speaker, half for the candour.",
+            4,
+        ),
+    ],
+    "dreamweaver": [
+        (
+            "dcole",
+            8,
+            "Productive nights",
+            "Wore it for a month. My dreams are tidier, more on-brand and "
+            "indexed by morning. I do miss the one with the lighthouse; it "
+            "hasn't been back since the update.",
+            120,
+        ),
+        (
+            "snakamura",
+            4,
+            "Who edited my dream?",
+            "Woke up with a dream I'd never had, fully indexed and tagged "
+            '"useful later". Support said it was working as intended. I '
+            "believe them, which worries me.",
+            55,
+        ),
+        (
+            "customer",
+            9,
+            "My dreams finally have a schedule",
+            "I used to dream about falling. Now I dream about quarterly "
+            "planning, and I wake up with the slides done. Half a star off "
+            "for the retained material I keep finding in my index.",
+            40,
+        ),
+    ],
+    # "Also our best-reviewed product. The reviews are short."
+    "travel-faraday-case": [
+        ("mwren", 10, "", "Quiet in here.", 140),
+        ("rmalik", 10, "Finally", "Peace. Briefly.", 26),
+        ("pquist", 10, "", "Nobody heard me write this.", 3),
+    ],
+    "veil": [
+        (
+            "gfinch",
+            2,
+            "Do not wear while standing",
+            "The warning is on the box for a reason. Ninety seconds, as "
+            "promised. I woke up on the kitchen floor with the kettle still "
+            "on. Works perfectly; one star for my elbow.",
+            70,
+        ),
+        (
+            "hpark",
+            8,
+            "Asleep before the ad finished",
+            "I haven't been awake for the end of a single film since I "
+            "bought it. My sleep score has never been better and my "
+            "watchlist has never been longer.",
+            12,
+        ),
+    ],
+    "recallpro": [
+        (
+            "lvasquez",
+            3,
+            "Please add a forget button",
+            "It works. That's the problem. I can replay every argument I've "
+            "ever lost, word for word, at 3 a.m. The roadmap says forgetting "
+            "is coming. The roadmap has said that since March.",
+            95,
+        ),
+        (
+            "tokafor",
+            7,
+            "",
+            "Never lose my keys, never miss a name, never forget a birthday. "
+            "I also never forget the birthday I forgot in 2019, which now "
+            "plays on a loop every June.",
+            22,
+        ),
+    ],
+    "calm-collar": [
+        (
+            "bcrane",
+            9,
+            "Bedtime solved",
+            "My four-year-old used to fight bedtime for an hour. Now he's "
+            'calm in seconds and says the collar "tells him shhh". He is '
+            "very well behaved. Very.",
+            40,
+        ),
+        (
+            "aoyelaran",
+            5,
+            "",
+            "It works, but my daughter now goes quiet whenever she sees the "
+            "charging cable. I'm told this is a normal adjustment period.",
+            7,
+        ),
+    ],
+    "whisper-alarm-clock": [
+        (
+            "jbishop",
+            6,
+            "Gentle, but knows too much",
+            "It really does wake you gently. Then it gently reads back what "
+            "you said in your sleep, which this morning included my bank "
+            "PIN. Three stars.",
+            16,
+        ),
+    ],
+    "focusband-workplace-edition": [
+        (
+            "employee",
+            10,
+            "Required reading for every curator",
+            "We rolled FocusBand out to the whole curation team. My attention "
+            "score is up 31% and my manager says I've never been more "
+            "engaged. I can't stop thinking about it.",
+            68,
+        ),
+    ],
+}
+
+# How long before their first review a background reviewer's order was placed.
+REVIEWED_AFTER_DAYS = 10
 
 # Shipping addresses for the background orders. US-only, like checkout.
 SEED_ADDRESSES = [
@@ -699,6 +954,7 @@ class Command(BaseCommand):
         self._create_customer_cart()
         self._create_customer_wishlist()
         self._create_orders()
+        self._create_reviews()
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -710,6 +966,7 @@ class Command(BaseCommand):
                 f"{DiscountCode.objects.count()} discount codes, "
                 f"{get_user_model().objects.count()} users, "
                 f"{Order.objects.count()} orders, "
+                f"{Review.objects.count()} reviews, "
                 f"{Address.objects.count()} saved addresses, "
                 f"and a live cart and wishlist for 'customer'."
             )
@@ -717,6 +974,7 @@ class Command(BaseCommand):
 
     def _wipe(self):
         """Remove everything the seed owns; the rebuild starts from zero."""
+        Review.objects.all().delete()
         Order.objects.all().delete()
         Cart.objects.all().delete()
         Wishlist.objects.all().delete()
@@ -878,10 +1136,12 @@ class Command(BaseCommand):
             )
 
     def _create_orders(self):
-        """Order history: 4 visible orders for 'customer', 48 background.
+        """Order history: 4 visible orders for 'customer', 48 background, 1 staff.
 
         A seeded RNG keeps every run identical (the idempotence
-        contract). Statuses follow age — old orders are delivered,
+        contract). The background orders start with one delivered order
+        per reviewing customer, holding what they review; the rest are
+        random. Their statuses follow age — old orders are delivered,
         recent ones are still moving, and about one in ten was
         cancelled along the way.
         """
@@ -890,15 +1150,15 @@ class Command(BaseCommand):
         User = get_user_model()
 
         customer = User.objects.get(username="customer")
-        for days_ago, status, lines in CUSTOMER_ORDERS:
+        self._build_listed_orders(customer, CUSTOMER_ORDERS, now=now, rng=rng)
+
+        reviewer_orders = self._reviewer_orders()
+        for username, (days_ago, slugs) in reviewer_orders.items():
             self._build_order(
-                user=customer,
+                user=User.objects.get(username=username),
                 created_at=now - timedelta(days=days_ago, hours=rng.randint(1, 12)),
-                status=status,
-                lines=[
-                    (Product.objects.get(slug=slug), quantity)
-                    for slug, quantity in lines
-                ],
+                status=Order.Status.DELIVERED,
+                lines=[(Product.objects.get(slug=slug), 1) for slug in slugs],
                 rng=rng,
             )
 
@@ -914,7 +1174,7 @@ class Command(BaseCommand):
             .exclude(category__slug="defense")
             .order_by("slug")
         )
-        for _ in range(BACKGROUND_ORDER_COUNT):
+        for _ in range(BACKGROUND_ORDER_COUNT - len(reviewer_orders)):
             # Weighted toward today (business is good) so the dashboard's
             # default 30-day view has enough bars to read as a chart.
             days_ago = int(rng.triangular(0, 182, 0))
@@ -934,6 +1194,70 @@ class Command(BaseCommand):
                 ],
                 rng=rng,
             )
+
+        employee = User.objects.get(username="employee")
+        self._build_listed_orders(employee, EMPLOYEE_ORDERS, now=now, rng=rng)
+
+    def _build_listed_orders(self, user, orders, *, now, rng):
+        """A demo login's hand-listed orders: (days ago, status, lines)."""
+        for days_ago, status, lines in orders:
+            self._build_order(
+                user=user,
+                created_at=now - timedelta(days=days_ago, hours=rng.randint(1, 12)),
+                status=status,
+                lines=[
+                    (Product.objects.get(slug=slug), quantity)
+                    for slug, quantity in lines
+                ],
+                rng=rng,
+            )
+
+    @staticmethod
+    def _reviewer_orders():
+        """Each reviewing background customer's order: username -> (days ago, slugs).
+
+        One order of everything they review, placed REVIEWED_AFTER_DAYS
+        before their first review, in REVIEWS order.
+        """
+        background = {username for username, *_ in BACKGROUND_CUSTOMERS}
+        orders = {}
+        for slug, entries in REVIEWS.items():
+            for username, _rating, _headline, _comment, days_ago in entries:
+                if username not in background:
+                    continue
+                placed, slugs = orders.get(username, (0, []))
+                orders[username] = (
+                    max(placed, days_ago + REVIEWED_AFTER_DAYS),
+                    [*slugs, slug],
+                )
+        return orders
+
+    def _create_reviews(self):
+        """The hand-written REVIEWS, each held to the feature's own rules.
+
+        Every author must have bought the product, and every review must
+        pass the model's validation, as one written on the site would. A
+        slip in REVIEWS stops the seed rather than seeding a review the
+        site could never have accepted.
+        """
+        User = get_user_model()
+        now = timezone.now()
+        for slug, entries in REVIEWS.items():
+            product = Product.objects.get(slug=slug)
+            for username, rating, headline, comment, days_ago in entries:
+                user = User.objects.get(username=username)
+                if not Review.can_write(user, product):
+                    raise CommandError(f"{username} hasn't bought {slug}.")
+                review = Review(
+                    user=user,
+                    product=product,
+                    rating=rating,
+                    headline=headline,
+                    comment=comment,
+                    created_at=now - timedelta(days=days_ago),
+                )
+                review.full_clean()
+                review.save()
 
     def _build_order(self, *, user, created_at, status, lines, rng):
         """One order with denormalized addresses, prices and image snapshots.

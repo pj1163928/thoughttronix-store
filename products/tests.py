@@ -262,8 +262,9 @@ def test_seed_builds_the_demo_world(db):
     assert not mark_one.is_available
     assert mark_one.category.name == "Defense"
 
-    # 40–60 orders across the trailing six months, per the PRD.
-    assert Order.objects.count() == 52
+    # 40–60 orders across the trailing six months, per the PRD; the 53rd
+    # is the employee's, behind their staff review.
+    assert Order.objects.count() == 53
     statuses = set(Order.objects.values_list("status", flat=True))
     assert statuses == set(Order.Status.values)
 

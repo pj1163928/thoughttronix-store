@@ -30,6 +30,162 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-14 — Product Reviews: Phase 2/12, Reviews section and summary
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 2`.
+2. "Go ahead and implement the changes"
+3. "Go ahead and move to the next test this section looks good"
+4. "Approve, and move to next"
+5. "Looks good, move to next"
+6. Answered "Don't commit" to the commit offer.
+7. "Ok everything is looking good functionally howevr there are a few
+   changes I would like to make to have it look better. I would like to
+   have some profile pictures to the right of the user review, you can use
+   the users profile or their sillhoute if they do not have one. Then for
+   the stars it looks weird to have 10 stars especially when they are grey
+   can we have 5 stars and use half stars to mark themand include a
+   numeric indicator as well."
+8. (With a screenshot showing ten small stars and "1.5") "Ok I made a
+   little error I actually wanted profile pictures to the left, also the
+   stars are not half stars as I mentioned I would like it to simply be 5
+   stars with half stars"
+
+### Summary
+
+- **Outcome:**
+  - The Reviews section now has its summary ("4.0 from 12 customer
+    reviews" or "No customer reviews yet") and everyone else's reviews,
+    each with name and badge.
+  - The details card shows a small average linking to `#reviews`.
+  - Create updates both averages out of band.
+  - The seed has 26 hand-written reviews and 53 orders.
+
+  17 new tests; the full suite has 1,117, all passing. `ruff check` and
+  `ruff format` are clean. `seed` ran twice with identical output. There
+  are no migrations.
+- **Changes:**
+  - `reviews/models.py` — new pieces:
+    - `RatingSummary`, which has `half_stars` and `average_display`,
+      both rounded half up
+    - the `ReviewQuerySet` methods `live()`, `counted()` (the counted
+      set), `listed_for(user)` and `rating_summary()`
+    - `Review.author_name`
+  - `reviews/views.py` — `section_context()` composes the slot, the
+    summary and a lazy list. The create view renders `_slot_update.html`.
+  - `reviews/templatetags/reviews_extras.py` — the section tag uses
+    `section_context`, and a new `review_rating` tag renders the details
+    card's average.
+  - `templates/reviews/partials/` — three new partials and four updated
+    ones:
+    - new: `_reviews_summary.html`, `_details_rating.html` and
+      `_slot_update.html` (the slot plus both out-of-band partials)
+    - `_review.html` gains the name and badge
+    - `_reviews_section.html` gains the summary and `#review-list`
+    - `_stars.html` gains a `size` option
+    - `_your_review.html` gets spacing
+  - `templates/products/detail.html` — `{% review_rating product %}`
+    under the price.
+  - `products/management/commands/seed.py` — the seed changes:
+    - `Review` rows are wiped first
+    - three more background customers (12 in total)
+    - `REVIEWS`, keyed by product slug like `CATALOG`
+    - one delivered order per reviewing background customer, inside the
+      existing 48
+    - `EMPLOYEE_ORDERS` (one delivered FocusBand order)
+    - `_create_reviews`, which runs `can_write` and `full_clean` on every
+      review
+    - docstrings and count comments updated to 53
+  - `products/tests.py` — the seed's order count goes from 52 to 53.
+  - `reviews/tests.py` — summary, name, out-of-band, list, rounding,
+    `by_staff` snapshot and seed-rule tests.
+  - `plans/product-reviews.md` — Phase 2's criteria ticked.
+- **TDD:** three behaviors were driven red to green:
+  1. The summary counts only live customer reviews. A product with only
+     staff reviews reads "No customer reviews yet" and still lists them,
+     badged.
+  2. Reviewers appear as "Dana C." or "A ThoughtTronix customer". The
+     username and the full name never appear.
+  3. A create response carries the slot plus the out-of-band summary and
+     details-card average, already counting the new review.
+- **Decisions:**
+  - The seed couldn't put more than ten reviews on any product. No
+    product had more than 5 distinct non-cancelled buyers, and reviews
+    are unique per (user, product). The fix:
+    - 3 more background customers
+    - out of the existing 48 background orders, each reviewing customer
+      gets one delivered order of what they review, placed 10 days
+      before their first review
+    - the remaining 36 orders stay random
+    - Emory's order makes 53
+    - the random orders reshuffled, so the dashboard's demo figures
+      changed
+  - Seraphine has 12 reviews averaging exactly 4.0, to make Phase 6's
+    "4 stars & up" boundary easy to demo.
+  - Emory's staff review is on FocusBand, which has no customer reviews,
+    so it demos "No customer reviews yet" with a badged staff review.
+  - The Travel Faraday Case's three reviews are short, playing on its
+    catalog copy.
+  - The seed imports `reviews`, as it already imports `wishlist`.
+    Product code itself still doesn't import `reviews`.
+  - Averages show one decimal place, rounded half up. The star row
+    rounds to the nearest half star.
+  - With only a first name, the reviewer name is that first name.
+  - All other reviews are listed for now; ten at a time is Phase 5's job.
+- **Deviations:** the user approved the brief unchanged. After each green
+  the user asked to move straight on, so each GREEN report went in the
+  same message as the next RED test.
+- **Sideways:**
+  - Piping a script into `manage.py shell` from PowerShell failed on a
+    byte-order mark; `shell -c` from Bash worked.
+  - Behavior 3's first draft asserted a CSS class string. That tested
+    markup rather than behavior, so I cut it before the first run.
+  - A pointless `"5.0 …" not in page` assertion was removed from an
+    ordinary test.
+  - `conftest.py` says tests never invoke the seed, but several do. I
+    followed the existing seed tests and left the stale comment alone.
+- **Follow-up (prompt 7), the look of a review:**
+  - **Ten grey stars.** This was a bug from Phase 1. The templates built
+    the half-mask class as `mask-half-{{ … }}`, so Tailwind never
+    compiled `mask-half-1` or `mask-half-2`, and every half rendered as
+    a whole star. On top of that, DaisyUI's `.rating` draws every
+    position at 20% opacity unless it, or a later sibling, is checked or
+    `aria-current`. The read-only row marked neither, so even lit stars
+    came out faint grey. The Phase 1 picker had the same class bug, and
+    its whole first star was `w-8`, wider than `rating-lg`'s 1.75 rem
+    star.
+  - **The fixes:**
+    - `_stars.html` and `_review_form.html` write both mask classes out
+      in full
+    - the `half_stars` filter marks the last lit half `current`, and the
+      template sets `aria-current` on it
+    - the picker's first star is `w-7`
+    - a test fails if any reviews template builds a `mask-half-` class
+      again
+  - **A number beside the stars** ("4.5"), `aria-hidden` because the
+    stars' label already says it.
+  - **The author's picture on the right**, with their name beneath it,
+    or the silhouette. It comes from a new `Review.author_picture`, not
+    `User.avatar_picture`, because the latter's alt text holds the full
+    name. It is also rendered decorative, since the name sits beside it.
+  - Six new tests. The rebuilt CSS was checked for `mask-half-1`,
+    `mask-half-2` and `w-7`.
+- **Follow-up (prompt 8):**
+  - The picture and name moved to the left of the review, as the user
+    meant in the first place.
+  - The screenshot still showed ten half-width whole stars, with the new
+    "1.5" beside them. So the template was current but the browser's
+    stylesheet wasn't: `mask-half-*` only reached `tailwind.css` with
+    the forced rebuild.
+  - To check rather than guess, the real Seraphine page was rendered
+    against the compiled CSS in headless Edge. It showed five stars with
+    true halves (1.5 and 3.5), the number, and the picture on the left.
+  - The user was told to hard-refresh, and to rebuild the CSS if the
+    Tailwind watcher isn't running.
+
+---
+
 ## 2026-10-14 — Product Reviews: Phase 1/12, Write a review
 
 ### Prompts

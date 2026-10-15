@@ -1,13 +1,44 @@
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
+from products.images import avatar_picture
 from products.models import Product
 
 COMMENT_MIN = 10
 COMMENT_MAX = 2000
+
+
+@dataclass(frozen=True)
+class RatingSummary:
+    """A product's customer numbers: how many counted reviews, and their average.
+
+    ``average`` is in stars (1.0–5.0), or ``None`` with no counted reviews.
+    """
+
+    count: int
+    average: float | None
+
+    @property
+    def half_stars(self):
+        """The average rounded half up to a whole half star, for a star row."""
+        if self.average is None:
+            return 0
+        exact = Decimal(str(self.average)) * 2
+        return int(exact.quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+    @property
+    def average_display(self):
+        """The average to one decimal place, rounded half up: "4.0", "3.8"."""
+        if self.average is None:
+            return ""
+        exact = Decimal(str(self.average))
+        return str(exact.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
 
 
 class ReviewQuerySet(models.QuerySet):
@@ -16,6 +47,40 @@ class ReviewQuerySet(models.QuerySet):
         if not user.is_authenticated:
             return self.none()
         return self.filter(user=user)
+
+    def live(self):
+        """Reviews staff haven't removed: the ones the public may see."""
+        return self.filter(removed_at__isnull=True)
+
+    def counted(self):
+        """The counted set: live customer reviews.
+
+        Every average, count, sort and filter uses only these. Staff
+        reviews are shown, badged, but never counted, so the store's own
+        people can't move a product's numbers.
+        """
+        return self.live().filter(by_staff=False)
+
+    def listed_for(self, user):
+        """The public list for ``user``: every live review but their own.
+
+        Their own review lives in the "Your review" slot instead.
+        """
+        reviews = self.live().select_related("user")
+        if user.is_authenticated:
+            reviews = reviews.exclude(user=user)
+        return reviews
+
+    def rating_summary(self):
+        """The counted set's size and average rating in stars."""
+        numbers = self.counted().aggregate(
+            count=models.Count("pk"), average=models.Avg("rating")
+        )
+        average = numbers["average"]
+        return RatingSummary(
+            count=numbers["count"],
+            average=None if average is None else average / 2,
+        )
 
 
 class Review(models.Model):
@@ -117,6 +182,29 @@ class Review(models.Model):
             raise ValidationError(
                 {"comment": f"Keep it to 2,000 characters (this has {length:,})."}
             )
+
+    @property
+    def author_name(self):
+        """How the public page names the author: "Dana C.".
+
+        First name and last initial, or "A ThoughtTronix customer" for an
+        account with no first name. Never the username, which is a
+        sign-in identifier, and never the full name.
+        """
+        first = self.user.first_name.strip()
+        if not first:
+            return "A ThoughtTronix customer"
+        last = self.user.last_name.strip()
+        return f"{first} {last[0]}." if last else first
+
+    @property
+    def author_picture(self):
+        """The author's profile picture, or the silhouette, labelled by ``author_name``.
+
+        Not ``User.avatar_picture``: its alt text carries the full name,
+        which the public page never shows.
+        """
+        return avatar_picture(self.user, f"Profile picture of {self.author_name}")
 
     @property
     def stars(self):

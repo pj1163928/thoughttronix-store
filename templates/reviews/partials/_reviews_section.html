@@ -1,8 +1,18 @@
-{# The product page's full-width Reviews section, rendered by the reviews_section tag. #}
-{# The section's id is the anchor the details card will link down to. #}
+{# The product page's full-width Reviews section, rendered by the reviews_section tag: #}
+{# the customer summary, the "Your review" slot, then everyone else's reviews. #}
+{# The section's id is the anchor the details card links down to. #}
 <section id="reviews" aria-labelledby="reviews-heading" class="mt-16 scroll-mt-24">
   <h2 id="reviews-heading" class="text-2xl font-bold">Reviews</h2>
+  {% include "reviews/partials/_reviews_summary.html" %}
   <div class="mt-6">
     {% include "reviews/partials/_your_review.html" %}
+  </div>
+  {% if others %}<h3 class="sr-only">Other reviews</h3>{% endif %}
+  <div id="review-list" class="mt-4 divide-y divide-base-300">
+    {% for review in others %}
+      <div class="py-6">
+        {% include "reviews/partials/_review.html" %}
+      </div>
+    {% endfor %}
   </div>
 </section>

@@ -75,6 +75,7 @@
       {% endif %}
 
       <p class="mt-6 text-3xl font-semibold text-primary">${{ product.price|intcomma }}</p>
+      {% review_rating product %}
 
       <div class="mt-4 flex flex-wrap gap-2">
         {% include "products/partials/_featured_badge.html" %}

@@ -1,20 +1,28 @@
 """Reviews: eligibility, the model's rules, the "Your review" slot and create."""
 
+import io
 from decimal import Decimal
 from http import HTTPStatus
+from pathlib import Path
 
 import pytest
+from django.conf import settings
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.db import IntegrityError
 from django.urls import reverse
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
+from products import images
+from products.models import Product
 
 from .forms import ReviewForm
 from .models import Review
+from .templatetags.reviews_extras import half_stars
 
 pytestmark = pytest.mark.django_db
 
@@ -246,6 +254,23 @@ def test_a_valid_create_writes_the_review_and_returns_the_slot(
     assert "Post review" not in page
 
 
+def test_a_create_response_updates_both_averages_out_of_band(client, customer, product):
+    """The slot, plus the section summary and the details-card average, all current."""
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=6)
+    buy(customer, product)
+    client.force_login(customer)
+
+    response = client.post(create_url(product), {**VALID, "rating": "10"})
+
+    page = response.content.decode()
+    assert 'id="your-review"' in page
+    assert 'id="reviews-summary"' in page
+    assert page.count('hx-swap-oob="true"') == 2
+    assert 'id="details-rating"' in page
+    assert "4.0 from 2 customer reviews" in page
+    assert "4.0 · 2 customer reviews" in page
+
+
 def test_a_staff_members_review_is_marked_by_staff(client, staff_user, product):
     buy(staff_user, product)
     client.force_login(staff_user)
@@ -445,6 +470,238 @@ def test_an_author_whose_order_was_cancelled_still_sees_their_review(
     page = response.content.decode()
     assert "Written while it still counted." in page
     assert NOT_BOUGHT not in page
+
+
+# --- The Reviews section: summary and list --------------------------------------
+
+
+def shopper(username, first_name="", last_name=""):
+    """Another signed-up customer, for reviews that aren't the viewer's."""
+    return get_user_model().objects.create_user(
+        username=username, first_name=first_name, last_name=last_name
+    )
+
+
+def test_the_summary_counts_customer_reviews_only(
+    client, customer, staff_user, product, featured_product
+):
+    """Staff and removed reviews never move a number; staff ones are still listed."""
+    make_review(customer, product, rating=8)
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=10)
+    make_review(staff_user, product, rating=2)
+    removed = make_review(shopper("gfinch", "Gordon", "Finch"), product, rating=2)
+    removed.removed_at = timezone.now()
+    removed.save()
+    make_review(staff_user, featured_product, rating=10, comment="Staff pick, sorry.")
+
+    page = client.get(product.get_absolute_url()).content.decode()
+    staff_only = client.get(featured_product.get_absolute_url()).content.decode()
+
+    assert "4.5 from 2 customer reviews" in page
+    assert "No customer reviews yet" in staff_only
+    assert "Staff pick, sorry." in staff_only
+    assert "ThoughtTronix staff" in staff_only
+
+
+def test_reviewers_are_named_by_first_name_and_last_initial_only(client, product):
+    """Never the username (a sign-in identifier) and never the full name."""
+    make_review(shopper("dcole", "Dana", "Cole"), product)
+    make_review(shopper("ghost_x9"), product)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert "Dana C." in page
+    assert "A ThoughtTronix customer" in page
+    for private in ["dcole", "Cole", "ghost_x9"]:
+        assert private not in page
+
+
+def test_each_review_shows_its_authors_picture_or_the_silhouette(
+    client, product, make_image
+):
+    dana = shopper("dcole", "Dana", "Cole")
+    images.set_avatar(dana, images.validate_avatar(make_image()))
+    make_review(dana, product)
+    make_review(shopper("gfinch", "Gordon", "Finch"), product)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert dana.avatar.url in page
+    assert "placeholders/avatar.svg" in page
+
+
+def test_the_authors_picture_is_labelled_without_the_full_name(customer, product):
+    customer.first_name, customer.last_name = "Casey", "Monroe"
+    customer.save()
+
+    review = make_review(customer, product)
+
+    assert review.author_picture.alt == "Profile picture of Casey M."
+
+
+def test_a_star_row_is_five_stars_lit_up_to_the_rating():
+    positions = half_stars(7)
+
+    assert [position["half"] for position in positions] == [1, 2] * 5
+    assert [position["current"] for position in positions].index(True) == 6
+    assert sum(position["current"] for position in positions) == 1
+
+
+def test_each_review_shows_its_rating_as_a_number(client, product):
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=9)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert 'aria-label="4½ stars"' in page
+    assert '<span class="text-sm font-semibold" aria-hidden="true">4.5</span>' in page
+
+
+def test_star_classes_are_written_out_for_tailwind():
+    """Tailwind only finds whole class names; a built one never reaches the CSS."""
+    templates = Path(settings.BASE_DIR) / "templates" / "reviews"
+    for template in templates.rglob("*.html"):
+        assert "mask-half-{{" not in template.read_text(encoding="utf-8"), template
+
+
+def test_a_first_name_alone_is_used_as_is(customer, product):
+    review = make_review(shopper("cher", "Cher"), product)
+
+    assert review.author_name == "Cher"
+
+
+def test_a_visitor_reads_the_summary_and_the_list(client, product):
+    make_review(shopper("dcole", "Dana", "Cole"), product, comment="Hears everything.")
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert "4.0 from 1 customer review" in page
+    assert "Hears everything." in page
+    assert "Verified purchase" in page
+
+
+def test_a_product_without_reviews_says_so_twice(client, product):
+    """In the details card and in the section summary."""
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert page.count("No customer reviews yet") == 2
+
+
+def test_the_details_card_links_its_average_to_the_section(client, product):
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=7)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert '<a href="#reviews" id="details-rating"' in page
+    assert "3.5 · 1 customer review" in page
+
+
+def test_the_viewers_own_review_is_in_the_slot_not_the_list(client, customer, product):
+    mine = make_review(customer, product, comment="Mine, shown once.")
+    theirs = make_review(shopper("dcole", "Dana", "Cole"), product)
+    client.force_login(customer)
+
+    response = client.get(product.get_absolute_url())
+
+    page = response.content.decode()
+    assert page.count(f'id="review-{mine.pk}"') == 1
+    assert page.count("Mine, shown once.") == 1
+    assert page.index('id="your-review"') < page.index(f'id="review-{mine.pk}"')
+    assert page.index(f'id="review-{mine.pk}"') < page.index('id="review-list"')
+    assert page.index('id="review-list"') < page.index(f'id="review-{theirs.pk}"')
+
+
+def test_removed_reviews_are_not_listed(client, product):
+    removed = make_review(shopper("dcole", "Dana", "Cole"), product)
+    removed.removed_at = timezone.now()
+    removed.save()
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert f'id="review-{removed.pk}"' not in page
+
+
+def test_staff_and_removed_reviews_are_left_out_of_the_counted_set(
+    customer, staff_user, product
+):
+    counted = make_review(customer, product)
+    make_review(staff_user, product)
+    removed = make_review(shopper("dcole", "Dana", "Cole"), product)
+    removed.removed_at = timezone.now()
+    removed.save()
+
+    assert list(Review.objects.counted()) == [counted]
+    assert Review.objects.rating_summary().count == 1
+
+
+def test_an_empty_summary_has_no_average():
+    summary = Review.objects.none().rating_summary()
+
+    assert (summary.count, summary.average, summary.half_stars) == (0, None, 0)
+
+
+@pytest.mark.parametrize(
+    ("ratings", "display", "half_stars"),
+    [([8], "4.0", 8), ([7, 8], "3.8", 8), ([8, 9, 9], "4.3", 9), ([2, 3], "1.3", 3)],
+)
+def test_the_average_rounds_half_up(product, ratings, display, half_stars):
+    for number, rating in enumerate(ratings):
+        make_review(shopper(f"shopper{number}"), product, rating=rating)
+
+    summary = Review.objects.rating_summary()
+
+    assert (summary.average_display, summary.half_stars) == (display, half_stars)
+
+
+def test_by_staff_survives_the_author_changing_roles(customer, staff_user, product):
+    """A snapshot of who wrote it, never recomputed."""
+    customers_review = make_review(customer, product, comment="Written as a customer.")
+    staff_review = make_review(staff_user, product, comment="Written as staff.")
+
+    customer.is_staff = True
+    customer.save()
+    staff_user.is_staff = False
+    staff_user.save()
+    for review in (customers_review, staff_review):
+        review.refresh_from_db()
+        review.comment += " Edited later."
+        review.save()
+
+    customers_review.refresh_from_db()
+    staff_review.refresh_from_db()
+    assert not customers_review.by_staff
+    assert staff_review.by_staff
+    assert list(Review.objects.counted()) == [customers_review]
+
+
+# --- The seed -------------------------------------------------------------------
+
+
+def test_the_seeded_reviews_obey_the_features_own_rules(db):
+    """Run twice: every author bought what they reviewed, and the demo states exist."""
+    call_command("seed", stdout=io.StringIO())
+    first = (Review.objects.count(), Order.objects.count())
+    call_command("seed", stdout=io.StringIO())
+
+    assert (Review.objects.count(), Order.objects.count()) == first
+    assert Order.objects.count() == 53
+    for review in Review.objects.select_related("user", "product"):
+        assert (
+            OrderItem.objects.filter(order__user=review.user, product=review.product)
+            .exclude(order__status=Order.Status.CANCELLED)
+            .exists()
+        ), review
+
+    casey = Review.objects.filter(user__username="customer")
+    assert [review.product.slug for review in casey] == ["dreamweaver"]
+    emory = Review.objects.get(user__username="employee")
+    assert emory.by_staff
+    assert Review.objects.filter(by_staff=True).count() == 1
+
+    busiest = max(Product.objects.all(), key=lambda product: product.reviews.count())
+    assert busiest.reviews.count() > 10
+    ratings = set(Review.objects.values_list("rating", flat=True))
+    assert ratings == set(Review.Rating.values)
+    assert Review.objects.filter(headline="").exists()
 
 
 # --- The rating picker ----------------------------------------------------------

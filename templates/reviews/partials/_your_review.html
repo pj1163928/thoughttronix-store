@@ -4,7 +4,9 @@
 <div id="your-review" class="card bg-base-200 p-6">
   {% if review %}
     <h3 class="text-lg font-semibold">Your review</h3>
-    {% include "reviews/partials/_review.html" %}
+    <div class="mt-4">
+      {% include "reviews/partials/_review.html" %}
+    </div>
   {% elif not user.is_authenticated %}
     {# A plain link, no HTMX: sign in, then come straight back to this product. #}
     <p>

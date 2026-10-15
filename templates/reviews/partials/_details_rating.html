@@ -1,0 +1,15 @@
+{# The product page details card's small customer average, linking down to the Reviews #}
+{# section. Rendered by the review_rating tag; include with oob=True to swap it out of band. #}
+<a href="#reviews" id="details-rating"
+   class="link-hover mt-2 inline-flex flex-wrap items-center gap-2 text-sm"
+   {% if oob %}hx-swap-oob="true"{% endif %}>
+  {% if summary.count %}
+    {# The words below say the same thing, so the stars stay out of the link's name. #}
+    <span aria-hidden="true" class="inline-flex">
+      {% include "reviews/partials/_stars.html" with rating=summary.half_stars label="" only %}
+    </span>
+    <span>{{ summary.average_display }} · {{ summary.count }} customer review{{ summary.count|pluralize }}</span>
+  {% else %}
+    <span class="opacity-70">No customer reviews yet</span>
+  {% endif %}
+</a>

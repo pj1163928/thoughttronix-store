@@ -1,9 +1,12 @@
 {% load reviews_extras %}
-{# A read-only star row for a stored rating (half stars, 2–10). #}
-{# One accessible name for the whole row; the masks themselves are decoration. #}
-<div class="rating rating-half rating-sm" role="img" aria-label="{{ label }}">
+{# A read-only row of five stars for a rating in half stars (0–10; an average rounds to one). #}
+{# Each star is two half masks; aria-current on the last lit half is how DaisyUI's rating #}
+{# lights it and every half before it, leaving the rest faint. The mask-half classes are #}
+{# written out in full so Tailwind finds them. One accessible name for the whole row; the #}
+{# masks themselves are decoration. size="md" for the section summary; small elsewhere. #}
+<div class="rating rating-half {% if size == 'md' %}rating-md{% else %}rating-sm{% endif %}" role="img" aria-label="{{ label }}">
   {% for star in rating|half_stars %}
-    <div class="mask mask-star-2 mask-half-{{ star.half }} {% if star.lit %}bg-warning{% else %}bg-base-content/20{% endif %}"
-         aria-hidden="true"></div>
+    <div class="mask mask-star-2 {% if star.half == 1 %}mask-half-1{% else %}mask-half-2{% endif %} bg-warning"
+         {% if star.current %}aria-current="true"{% endif %} aria-hidden="true"></div>
   {% endfor %}
 </div>

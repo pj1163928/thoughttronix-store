@@ -15,7 +15,7 @@ from products.models import Product
 from .forms import ReviewForm
 from .models import Review
 
-SLOT_TEMPLATE = "reviews/partials/_your_review.html"
+SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
 
 
 def slot_context(user, product, form=None):
@@ -33,10 +33,25 @@ def slot_context(user, product, form=None):
     }
 
 
+def section_context(user, product, form=None):
+    """The whole Reviews section for ``user``: the slot, the summary and the list.
+
+    ``others`` is lazy, so a response that only re-renders the slot and
+    the summaries never queries it.
+    """
+    reviews = Review.objects.filter(product=product)
+    return {
+        **slot_context(user, product, form),
+        "summary": reviews.rating_summary(),
+        "others": reviews.listed_for(user),
+    }
+
+
 class CreateReviewView(LoginRequiredMixin, View):
     """HTMX: write the signed-in user's review of a product, then re-render the slot.
 
-    Every outcome answers with the slot as the database now has it. A
+    Every outcome answers with the slot as the database now has it, plus
+    the section summary and the details-card average out of band. A
     user who already has a review — a double click, a stale second tab —
     gets that review back and nothing is written; so does the loser of
     two submits racing past that check, caught by the unique constraint.
@@ -58,4 +73,8 @@ class CreateReviewView(LoginRequiredMixin, View):
                 except IntegrityError:
                     pass  # A concurrent submit won; the slot shows its review.
                 form = None
-        return render(request, SLOT_TEMPLATE, slot_context(request.user, product, form))
+        return render(
+            request,
+            SLOT_UPDATE_TEMPLATE,
+            section_context(request.user, product, form),
+        )

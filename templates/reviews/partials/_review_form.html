@@ -7,13 +7,15 @@
   <fieldset>
     <legend class="label mb-1">Rating</legend>
     {# DaisyUI half-star picker, no JavaScript. The hidden radio is "no rating yet"; #}
-    {# there is no 0.5, so the first star is one whole radio and the rest are halves. #}
+    {# there is no 0.5, so the first star is one whole radio (w-7, rating-lg's full star #}
+    {# width) and the rest are halves. The mask-half classes are written out in full so #}
+    {# Tailwind finds them. #}
     <div class="rating rating-lg rating-half">
       <input type="radio" name="rating" value="" class="rating-hidden" aria-label="No rating"
              {% if not form.rating_chosen %}checked{% endif %} />
       {% for option in form.rating_options %}
         <input type="radio" name="rating" value="{{ option.value }}" aria-label="{{ option.label }}"
-               class="mask mask-star-2 bg-warning {% if option.whole %}w-8{% else %}mask-half-{{ option.half }}{% endif %}"
+               class="mask mask-star-2 bg-warning {% if option.whole %}w-7{% elif option.half == 1 %}mask-half-1{% else %}mask-half-2{% endif %}"
                {% if option.checked %}checked{% endif %} />
       {% endfor %}
     </div>
