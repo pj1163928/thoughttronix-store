@@ -1,0 +1,33 @@
+{# The author's review form. Posts over HTMX and swaps the whole slot with the answer: #}
+{# the new review, or this form again with its errors. #}
+<form hx-post="{% url 'reviews:create' product.pk %}"
+      hx-target="#your-review"
+      hx-swap="outerHTML"
+      class="mt-4 space-y-4">
+  <fieldset>
+    <legend class="label mb-1">Rating</legend>
+    {# DaisyUI half-star picker, no JavaScript. The hidden radio is "no rating yet"; #}
+    {# there is no 0.5, so the first star is one whole radio and the rest are halves. #}
+    <div class="rating rating-lg rating-half">
+      <input type="radio" name="rating" value="" class="rating-hidden" aria-label="No rating"
+             {% if not form.rating_chosen %}checked{% endif %} />
+      {% for option in form.rating_options %}
+        <input type="radio" name="rating" value="{{ option.value }}" aria-label="{{ option.label }}"
+               class="mask mask-star-2 bg-warning {% if option.whole %}w-8{% else %}mask-half-{{ option.half }}{% endif %}"
+               {% if option.checked %}checked{% endif %} />
+      {% endfor %}
+    </div>
+    {% for error in form.rating.errors %}
+      <p class="mt-1 text-sm text-error">{{ error }}</p>
+    {% endfor %}
+  </fieldset>
+
+  {% include "products/partials/_field.html" with field=form.headline %}
+  {% include "products/partials/_field.html" with field=form.comment %}
+
+  {% for error in form.non_field_errors %}
+    <p class="text-sm text-error">{{ error }}</p>
+  {% endfor %}
+
+  <button type="submit" class="btn btn-primary">Post review</button>
+</form>

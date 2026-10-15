@@ -1,0 +1,9 @@
+{% load reviews_extras %}
+{# A read-only star row for a stored rating (half stars, 2–10). #}
+{# One accessible name for the whole row; the masks themselves are decoration. #}
+<div class="rating rating-half rating-sm" role="img" aria-label="{{ label }}">
+  {% for star in rating|half_stars %}
+    <div class="mask mask-star-2 mask-half-{{ star.half }} {% if star.lit %}bg-warning{% else %}bg-base-content/20{% endif %}"
+         aria-hidden="true"></div>
+  {% endfor %}
+</div>

@@ -30,6 +30,98 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-14 — Product Reviews: Phase 1/12, Write a review
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 1`.
+2. "Go ahead and implement and continue implementing, everything looks
+   good"
+3. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:** the tracer for product reviews:
+  - a new `reviews` app with the `Review` model, its half-star rating
+    choices, both constraints and the eligibility rule
+  - a Reviews section below the product page's grid, holding the
+    "Your review" slot in its four states
+  - an HTMX create endpoint
+  - a test that guards against admin registration
+
+  50 new tests; the full suite has 1,100, all passing. `ruff check` and
+  `ruff format` are clean, and `makemigrations --check` reports no
+  changes.
+- **Changes:**
+  - `reviews/models.py` — `Review` has every field the PRD lists,
+    including the moderation and removal fields, so later phases need
+    no migration. It also has:
+    - `Rating` (`IntegerChoices` 2–10, labelled "1 star" to "5 stars")
+    - a `CheckConstraint` on the range and a `UniqueConstraint` on
+      (user, product)
+    - the `by_staff` snapshot, taken in `save()` on the first insert
+    - `clean()`, which trims the comment and holds a live review to
+      10–2,000 characters
+    - `stars`, the rating in stars
+    - `Review.can_write`, the eligibility rule
+    - `ReviewQuerySet.by(user)`
+  - `reviews/migrations/0001_initial.py` — the new table.
+  - `reviews/forms.py` — `ReviewForm`, built on `StyledModelForm`. Its
+    `rating_options()` feeds the picker. It says "Choose a rating." for a
+    missing or out-of-range rating.
+  - `reviews/views.py` — `slot_context`, the one place the slot's state
+    is decided, and `CreateReviewView` (POST only, sign-in required).
+    The view always answers with the slot as the database now has it.
+  - `reviews/urls.py` — `reviews:create` at
+    `/reviews/product/<pk>/create/`.
+  - `reviews/templatetags/reviews_extras.py` — the `reviews_section`
+    inclusion tag, and a `half_stars` filter for read-only star rows.
+  - `templates/reviews/partials/` — `_reviews_section`, `_your_review`,
+    `_review`, `_review_form` (the DaisyUI `rating rating-half` picker)
+    and `_stars`.
+  - `templates/products/detail.html` — loads `reviews_extras` and
+    renders `{% reviews_section product %}` below the grid.
+  - `config/settings.py` and `config/urls.py` — register the app and
+    its URLs.
+  - `reviews/tests.py` — the phase's tests.
+  - `plans/product-reviews.md` — Phase 1's criteria ticked.
+- **TDD:** three behaviours were driven red to green:
+  1. Eligibility: a placed, shipped or delivered order for the product
+     qualifies; a cancelled order, or an order for a different product,
+     doesn't.
+  2. The database refuses ratings of 0, 1 and 11 half stars. 0 got
+     through even with `PositiveSmallIntegerField`'s own check.
+  3. A second create POST returns the existing review in the slot and
+     writes nothing. It first failed as a 500 from the unique
+     constraint, which the test made visible with
+     `raise_request_exception = False`.
+
+  Everything else got ordinary tests.
+- **Decisions:**
+  - The comment rule lives only on `Review.clean()`, with the model
+    field `blank=True`, so each error shows once and a removed review
+    can later be blanked.
+  - Invalid submissions return 200, because htmx 2 doesn't swap 4xx
+    responses.
+  - The picker has a hidden "no rating" radio, a whole first star at
+    1.0 (`w-8`) and half-masks after that.
+  - The sign-in link's `next` is `product.get_absolute_url`, not the
+    request path.
+  - A visitor's POST redirects to sign-in, as the wishlist's does.
+  - Two submits that race past the existence check are caught by
+    `transaction.atomic()` plus `IntegrityError`.
+  - Your own review shows stars, headline, comment and date for now;
+    name, badges and Edit/Delete come in later phases.
+- **Deviations:** the user approved the brief unchanged and asked me to
+  keep going without stopping at each TDD cycle. Each cycle was still
+  run red, then green, and reported as it went.
+- **Sideways:** `makemigrations --check` caught drift. I had moved the
+  rating's error messages from the model to the form after generating
+  `0001`. The migration had never been applied, so I regenerated it
+  rather than adding a `0002`. The local `db.sqlite3` was then migrated.
+
+---
+
 ## 2026-10-14 — Product reviews: phased plan written from the PRD (no code)
 
 ### Prompts

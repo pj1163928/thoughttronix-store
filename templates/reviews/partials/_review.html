@@ -1,0 +1,11 @@
+{# One review: stars, headline, comment and date. The id lets later swaps find it. #}
+<article id="review-{{ review.pk }}" class="mt-4">
+  {% include "reviews/partials/_stars.html" with rating=review.rating label=review.get_rating_display only %}
+  {% if review.headline %}
+    <h4 class="mt-2 font-semibold">{{ review.headline }}</h4>
+  {% endif %}
+  <p class="mt-2">{{ review.comment|linebreaksbr }}</p>
+  <p class="mt-2 text-sm opacity-60">
+    <time datetime="{{ review.created_at|date:'c' }}">{{ review.created_at|date:"F j, Y" }}</time>
+  </p>
+</article>

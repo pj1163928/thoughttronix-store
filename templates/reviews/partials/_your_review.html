@@ -1,0 +1,20 @@
+{# The "Your review" slot: the viewer's own review, the form, or why there is no form. #}
+{# Decided from the database on every render (reviews.views.slot_context), on page load #}
+{# and after each HTMX post. The fixed id is the swap target and keeps focus in place. #}
+<div id="your-review" class="card bg-base-200 p-6">
+  {% if review %}
+    <h3 class="text-lg font-semibold">Your review</h3>
+    {% include "reviews/partials/_review.html" %}
+  {% elif not user.is_authenticated %}
+    {# A plain link, no HTMX: sign in, then come straight back to this product. #}
+    <p>
+      <a href="{% url 'accounts:login' %}?next={{ product.get_absolute_url|urlencode }}"
+         class="link link-primary">Bought this? Sign in to leave a review.</a>
+    </p>
+  {% elif eligible %}
+    <h3 class="text-lg font-semibold">Your review</h3>
+    {% include "reviews/partials/_review_form.html" %}
+  {% else %}
+    <p class="opacity-70">Only customers who've bought {{ product.name }} can review it.</p>
+  {% endif %}
+</div>

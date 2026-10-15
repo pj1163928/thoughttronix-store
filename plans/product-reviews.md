@@ -109,23 +109,23 @@ slot, not an error. A test fails if `Review` is registered in the admin.
 
 ### Acceptance criteria
 
-- [ ] A customer with a placed, shipped or delivered order for the product
+- [x] A customer with a placed, shipped or delivered order for the product
       sees the form, and one with only a cancelled order sees the
       not-bought note.
-- [ ] A visitor sees "Bought this? Sign in to leave a review." linking to
+- [x] A visitor sees "Bought this? Sign in to leave a review." linking to
       sign-in with `?next=` set to the product page.
-- [ ] Staff with a qualifying order see the form; an unavailable product's
+- [x] Staff with a qualifying order see the form; an unavailable product's
       buyer can still review it.
-- [ ] Ratings below 2 or above 10 half stars are refused by the database;
+- [x] Ratings below 2 or above 10 half stars are refused by the database;
       the picker offers 1.0 to 5.0 in half steps.
-- [ ] A headline over 100 characters, or a comment under 10 or over 2,000
+- [x] A headline over 100 characters, or a comment under 10 or over 2,000
       characters after trimming, re-renders the form in place with errors.
-- [ ] A valid POST creates the review, sets `by_staff` from the author's
+- [x] A valid POST creates the review, sets `by_staff` from the author's
       current `is_staff`, and returns the slot showing it.
-- [ ] A second create POST for the same user and product returns the
+- [x] A second create POST for the same user and product returns the
       existing review in the slot and creates nothing.
-- [ ] A create POST from an ineligible user creates nothing.
-- [ ] `Review` is not registered in the Django admin, and a test proves
+- [x] A create POST from an ineligible user creates nothing.
+- [x] `Review` is not registered in the Django admin, and a test proves
       it.
 
 ---

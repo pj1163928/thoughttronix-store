@@ -34,6 +34,7 @@ urlpatterns = [
     path("", include("dashboard.urls")),
     path("", include("orders.urls")),
     path("", include("wishlist.urls")),
+    path("", include("reviews.urls")),
     path("", include("products.urls")),
     path(
         "safety/",
