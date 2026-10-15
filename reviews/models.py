@@ -48,6 +48,20 @@ class ReviewQuerySet(models.QuerySet):
             return self.none()
         return self.filter(user=user)
 
+    def changeable_by(self, user):
+        """The reviews ``user`` may change: their own, or every one for staff.
+
+        The one permission rule behind every edit, delete and removal.
+        Anything outside it is a 404. Whether ``user`` wrote the review
+        then decides which change applies (author edit or staff edit,
+        delete or remove).
+        """
+        if not user.is_authenticated:
+            return self.none()
+        if user.is_staff:
+            return self
+        return self.filter(user=user)
+
     def live(self):
         """Reviews staff haven't removed: the ones the public may see."""
         return self.filter(removed_at__isnull=True)

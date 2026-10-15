@@ -186,15 +186,15 @@ edit.
 
 ### Acceptance criteria
 
-- [ ] The edit-form GET changes nothing; Cancel returns the review as it
+- [x] The edit-form GET changes nothing; Cancel returns the review as it
       was.
-- [ ] Saving changes rating, headline and comment, sets `edited_at`, and
+- [x] Saving changes rating, headline and comment, sets `edited_at`, and
       the review shows "Edited".
-- [ ] Another customer gets a 404 on the edit GET and POST.
-- [ ] A staff member editing their own review may change the rating and
+- [x] Another customer gets a 404 on the edit GET and POST.
+- [x] A staff member editing their own review may change the rating and
       gets "Edited", not the staff label.
-- [ ] An author whose order was cancelled after reviewing can still edit.
-- [ ] Invalid input re-renders the form in place with errors and saves
+- [x] An author whose order was cancelled after reviewing can still edit.
+- [x] Invalid input re-renders the form in place with errors and saves
       nothing.
 
 ---

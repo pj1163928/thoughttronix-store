@@ -1,6 +1,8 @@
-{# The author's review form. Posts over HTMX and swaps the whole slot with the answer: #}
-{# the new review, or this form again with its errors. #}
-<form hx-post="{% url 'reviews:create' product.pk %}"
+{# The author's review form. With a review it edits that review: it takes the review's #}
+{# id, so Cancel can swap the review back over it. Without one it writes a new review. #}
+{# Either way it posts over HTMX and swaps the whole slot with the answer: the review, #}
+{# or this form again with its errors. #}
+<form {% if review %}id="review-{{ review.pk }}" hx-post="{% url 'reviews:edit' review.pk %}"{% else %}hx-post="{% url 'reviews:create' product.pk %}"{% endif %}
       hx-target="#your-review"
       hx-swap="outerHTML"
       class="mt-4 space-y-4">
@@ -31,5 +33,16 @@
     <p class="text-sm text-error">{{ error }}</p>
   {% endfor %}
 
-  <button type="submit" class="btn btn-primary">Post review</button>
+  {% if review %}
+    <div class="flex flex-wrap gap-2">
+      <button type="submit" class="btn btn-primary">Save changes</button>
+      {# Puts the review back as it was; the GET changes nothing. #}
+      <button type="button" class="btn btn-ghost"
+              hx-get="{% url 'reviews:detail' review.pk %}"
+              hx-target="#review-{{ review.pk }}"
+              hx-swap="outerHTML">Cancel</button>
+    </div>
+  {% else %}
+    <button type="submit" class="btn btn-primary">Post review</button>
+  {% endif %}
 </form>

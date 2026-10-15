@@ -7,7 +7,9 @@ product page's ``reviews_section`` tag.
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import IntegrityError, transaction
+from django.http import Http404
 from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
 from django.views import View
 
 from products.models import Product
@@ -16,19 +18,24 @@ from .forms import ReviewForm
 from .models import Review
 
 SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
+REVIEW_TEMPLATE = "reviews/partials/_review.html"
+FORM_TEMPLATE = "reviews/partials/_review_form.html"
 
 
 def slot_context(user, product, form=None):
     """What the "Your review" slot shows ``user`` for ``product``, from the database.
 
     Their own review if they have one; otherwise whether they may write
-    one, with ``form`` (a rejected submission) or a blank form.
+    one, with ``form`` (a rejected submission) or a blank form. A
+    rejected ``form`` alongside an existing review is a rejected edit,
+    so the slot shows the edit form again with its errors.
     """
     review = Review.objects.by(user).filter(product=product).first()
     return {
         "product": product,
         "review": review,
         "eligible": review is None and Review.can_write(user, product),
+        "editing": review is not None and form is not None,
         "form": form or ReviewForm(),
     }
 
@@ -77,4 +84,71 @@ class CreateReviewView(LoginRequiredMixin, View):
             request,
             SLOT_UPDATE_TEMPLATE,
             section_context(request.user, product, form),
+        )
+
+
+class ReviewActionMixin(LoginRequiredMixin):
+    """Finds the review in the URL for a user allowed to act on it.
+
+    The author or staff (``Review.objects.changeable_by``); anyone else
+    gets a 404, as for another customer's wishlist line. ``author_only``
+    views narrow that to the author: a staff member's change to someone
+    else's review goes through the staff endpoints, which can't touch
+    the rating.
+    """
+
+    author_only = False
+
+    def get_review(self):
+        reviews = Review.objects.changeable_by(self.request.user).live()
+        review = get_object_or_404(
+            reviews.select_related("product", "user"), pk=self.kwargs["pk"]
+        )
+        if self.author_only and review.user_id != self.request.user.pk:
+            raise Http404("Only the author edits their review here.")
+        return review
+
+
+class ReviewDetailView(ReviewActionMixin, View):
+    """HTMX: one review, as it is now — what Cancel swaps back over a form."""
+
+    def get(self, request, pk):
+        return render(request, REVIEW_TEMPLATE, {"review": self.get_review()})
+
+
+class EditReviewView(ReviewActionMixin, View):
+    """HTMX: the author's edit of their own review — rating, headline and comment.
+
+    The GET swaps the filled-in form over the review and changes nothing.
+    A valid POST saves, marks the review "Edited" if anything changed,
+    and answers with the slot plus both averages out of band; an invalid
+    one answers with the slot holding the form and its errors.
+    """
+
+    author_only = True
+
+    def get(self, request, pk):
+        review = self.get_review()
+        return render(
+            request,
+            FORM_TEMPLATE,
+            {
+                "review": review,
+                "product": review.product,
+                "form": ReviewForm(instance=review),
+            },
+        )
+
+    def post(self, request, pk):
+        review = self.get_review()
+        form = ReviewForm(request.POST, instance=review)
+        if form.is_valid():
+            if form.has_changed():
+                form.instance.edited_at = timezone.now()
+            form.save()
+            form = None
+        return render(
+            request,
+            SLOT_UPDATE_TEMPLATE,
+            section_context(request.user, review.product, form),
         )

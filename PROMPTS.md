@@ -30,6 +30,84 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 3/12, Author edit
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 3`.
+2. "Continue implementing phase 3"
+3. "Ok move to the next"
+4. "Move to the next"
+5. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - The author's review in the "Your review" slot has an Edit button.
+    It swaps in the filled-in form, with Save changes and Cancel.
+  - Cancel fetches the review back unchanged.
+  - Saving sets `edited_at`, shows "· Edited" beside the date, and
+    updates both averages out of band.
+  - The one permission rule is in place: the author or staff, anyone
+    else a 404.
+
+  19 new tests; the full suite has 1,141, all passing. `ruff check`
+  and `ruff format` are clean. There are no migrations.
+- **Changes:**
+  - `reviews/models.py` — `ReviewQuerySet.changeable_by(user)`: every
+    review for staff, the user's own otherwise, none for a visitor.
+  - `reviews/views.py` — new pieces:
+    - `ReviewActionMixin`: 404 outside `changeable_by` or on a removed
+      review; `author_only` narrows it to the author
+    - `ReviewDetailView` (what Cancel fetches)
+    - `EditReviewView`
+    - `slot_context` gains `editing`, so a rejected edit re-renders the
+      form in the slot
+  - `reviews/urls.py` — `reviews:detail` and `reviews:edit`.
+  - `templates/reviews/partials/_review_form.html` — an edit mode: it
+    takes `id="review-<pk>"`, posts to `edit`, and offers Save changes
+    and Cancel.
+  - `templates/reviews/partials/_review.html` — the author's Edit button
+    and the "· Edited" label.
+  - `templates/reviews/partials/_your_review.html` — shows the edit form
+    while `editing`.
+  - `reviews/tests.py` — the TDD tests plus edit-form, Cancel, save,
+    out-of-band, no-change, invalid-input, staff-404, removed-404,
+    sign-in and Edit-button tests.
+  - `plans/product-reviews.md` — Phase 3's criteria ticked.
+- **TDD:** three behaviors:
+  1. Another customer gets a 404 on the edit GET and POST, and the
+     review is unchanged. This one was driven red (200 instead of 404)
+     to green by `changeable_by`.
+  2. An author whose order was cancelled can still edit.
+  3. A staff member editing their own review changes the rating and
+     gets `edited_at`, not `moderated_at`.
+
+  Tests 2 and 3 passed on their first run, because the scaffolding
+  built for cycle 1 already behaved correctly. Each was proven to have
+  teeth with a temporary mutation, then reverted:
+  - for test 2, adding `can_write` to the edit path, which made it 404
+  - for test 3, making a staff save keep the old rating and set
+    `moderated_at`
+- **Decisions:**
+  - A staff member gets a 404 at `reviews:edit` on someone else's
+    review. Staff edits go through `moderate` (Phase 7), which can't
+    touch the rating.
+  - `edit` and `detail` only find live reviews, so a removed review's
+    text is never sent back, even to its author (ahead of Phase 8).
+  - A save that changes nothing doesn't set "Edited".
+  - Visitors are sent to sign-in (`LoginRequiredMixin`), as for `create`.
+  - Edit swaps the form over `#review-<pk>`, Cancel swaps the review
+    back over the form, and Save replaces the whole `#your-review` slot.
+- **Deviations:** none. Each TDD cycle was approved as proposed.
+- **Sideways:**
+  - Building the scaffolding before cycles 2 and 3 meant they were never
+    red. The mutation checks stood in for that.
+  - One new test assumed the review partial began with `<article>`, but
+    it begins with comment lines. A one-line mechanical fix (`.strip()`).
+
+---
+
 ## 2026-10-14 — Product Reviews: Phase 2/12, Reviews section and summary
 
 ### Prompts
@@ -169,8 +247,8 @@ Each entry has this shape:
     or the silhouette. It comes from a new `Review.author_picture`, not
     `User.avatar_picture`, because the latter's alt text holds the full
     name. It is also rendered decorative, since the name sits beside it.
-  - Six new tests. The rebuilt CSS was checked for `mask-half-1`,
-    `mask-half-2` and `w-7`.
+  - Five new tests; the full suite has 1,122, all passing. The rebuilt
+    CSS was checked for `mask-half-1`, `mask-half-2` and `w-7`.
 - **Follow-up (prompt 8):**
   - The picture and name moved to the left of the review, as the user
     meant in the first place.

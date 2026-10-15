@@ -30,6 +30,16 @@
     <p class="mt-2 break-words">{{ review.comment|linebreaksbr }}</p>
     <p class="mt-2 text-sm opacity-60">
       <time datetime="{{ review.created_at|date:'c' }}">{{ review.created_at|date:"F j, Y" }}</time>
+      {% if review.edited_at %}· Edited{% endif %}
     </p>
+    {% if review.user_id == user.pk %}
+      {# The author's own controls. Edit swaps the form over this review. #}
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" class="btn btn-sm btn-outline"
+                hx-get="{% url 'reviews:edit' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Edit</button>
+      </div>
+    {% endif %}
   </div>
 </article>

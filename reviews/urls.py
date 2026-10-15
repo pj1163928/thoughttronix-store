@@ -11,4 +11,6 @@ urlpatterns = [
         views.CreateReviewView.as_view(),
         name="create",
     ),
+    path("reviews/<int:pk>/", views.ReviewDetailView.as_view(), name="detail"),
+    path("reviews/<int:pk>/edit/", views.EditReviewView.as_view(), name="edit"),
 ]

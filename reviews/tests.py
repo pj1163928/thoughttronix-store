@@ -673,6 +673,263 @@ def test_by_staff_survives_the_author_changing_roles(customer, staff_user, produ
     assert list(Review.objects.counted()) == [customers_review]
 
 
+# --- Author edit (HTMX) -----------------------------------------------------------
+
+
+def edit_url(review):
+    return reverse("reviews:edit", kwargs={"pk": review.pk})
+
+
+def test_another_customer_cannot_edit_a_review(client, customer, product):
+    """Nobody but the author and staff: anyone else gets a 404, GET and POST alike."""
+    review = make_review(customer, product, rating=8, comment="My words, not yours.")
+    client.force_login(shopper("dcole", "Dana", "Cole"))
+
+    shown = client.get(edit_url(review))
+    saved = client.post(edit_url(review), {**VALID, "rating": "2"})
+
+    assert shown.status_code == HTTPStatus.NOT_FOUND
+    assert saved.status_code == HTTPStatus.NOT_FOUND
+    review.refresh_from_db()
+    assert (review.rating, review.comment) == (8, "My words, not yours.")
+    assert review.edited_at is None
+
+
+def test_an_author_whose_order_was_cancelled_can_still_edit(client, customer, product):
+    """Eligibility guards creation only; a later refund doesn't take the review away."""
+    order = buy(customer, product)
+    review = make_review(customer, product, rating=8, comment="Before the refund.")
+    order.status = Order.Status.CANCELLED
+    order.save()
+    client.force_login(customer)
+
+    shown = client.get(edit_url(review))
+    client.post(edit_url(review), {**VALID, "comment": "After the refund, still mine."})
+
+    assert shown.status_code == HTTPStatus.OK
+    assert "Save changes" in shown.content.decode()
+    review.refresh_from_db()
+    assert review.comment == "After the refund, still mine."
+    assert review.edited_at is not None
+
+
+def test_a_staff_member_editing_their_own_review_is_an_author_edit(
+    client, staff_user, product
+):
+    """Rating included, labelled just "Edited": their own review isn't moderation."""
+    buy(staff_user, product)
+    review = make_review(staff_user, product, rating=8)
+    client.force_login(staff_user)
+
+    response = client.post(edit_url(review), {**VALID, "rating": "3"})
+
+    review.refresh_from_db()
+    assert review.rating == 3
+    assert review.edited_at is not None
+    assert (review.moderated_at, review.moderated_by) == (None, None)
+    assert review.by_staff
+    page = response.content.decode()
+    assert "· Edited" in page
+    assert "Edited by ThoughtTronix staff" not in page
+
+
+def detail_url(review):
+    return reverse("reviews:detail", kwargs={"pk": review.pk})
+
+
+def test_the_edit_form_is_filled_in_and_changes_nothing(client, customer, product):
+    review = make_review(customer, product, rating=7, comment="As first written.")
+    client.force_login(customer)
+
+    response = client.get(edit_url(review))
+
+    page = response.content.decode()
+    assert "<html" not in page
+    assert f'<form id="review-{review.pk}"' in page
+    assert f'hx-post="{edit_url(review)}"' in page
+    assert f'hx-get="{detail_url(review)}"' in page
+    assert 'value="7" aria-label="3½ stars"\n               class' in page
+    assert page.count("checked") == 1
+    assert "As first written." in page
+    assert "Save changes" in page
+    review.refresh_from_db()
+    assert (review.rating, review.comment, review.edited_at) == (
+        7,
+        "As first written.",
+        None,
+    )
+
+
+def test_cancel_returns_the_review_as_it_was(client, customer, product):
+    review = make_review(customer, product, comment="Untouched by Cancel.")
+    client.force_login(customer)
+    client.get(edit_url(review))
+
+    response = client.get(detail_url(review))
+
+    page = response.content.decode()
+    assert response.status_code == HTTPStatus.OK
+    assert "<html" not in page
+    assert page.strip().startswith(f'<article id="review-{review.pk}"')
+    assert "Untouched by Cancel." in page
+    assert "Edited" not in page
+    assert f'hx-get="{edit_url(review)}"' in page
+
+
+def test_saving_an_edit_changes_the_review_and_marks_it_edited(
+    client, customer, product
+):
+    review = make_review(customer, product, rating=8, comment="First thoughts here.")
+    client.force_login(customer)
+
+    response = client.post(
+        edit_url(review),
+        {"rating": "5", "headline": "Second thoughts", "comment": "It got worse."},
+    )
+
+    review.refresh_from_db()
+    assert (review.rating, review.headline, review.comment) == (
+        5,
+        "Second thoughts",
+        "It got worse.",
+    )
+    assert review.edited_at is not None
+    page = response.content.decode()
+    assert 'id="your-review"' in page
+    assert f'id="review-{review.pk}"' in page
+    assert "· Edited" in page
+    assert "Save changes" not in page
+
+
+def test_an_edit_response_updates_both_averages_out_of_band(client, customer, product):
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=6)
+    review = make_review(customer, product, rating=6)
+    client.force_login(customer)
+
+    response = client.post(edit_url(review), {**VALID, "rating": "10"})
+
+    page = response.content.decode()
+    assert page.count('hx-swap-oob="true"') == 2
+    assert 'id="reviews-summary"' in page
+    assert 'id="details-rating"' in page
+    assert "4.0 from 2 customer reviews" in page
+    assert "4.0 · 2 customer reviews" in page
+
+
+def test_saving_without_a_change_isnt_an_edit(client, customer, product):
+    review = make_review(customer, product, rating=8, comment="Exactly the same.")
+    client.force_login(customer)
+
+    client.post(
+        edit_url(review),
+        {"rating": "8", "headline": "", "comment": "Exactly the same."},
+    )
+
+    review.refresh_from_db()
+    assert review.edited_at is None
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"headline": "h" * 101}, "Ensure this value has at most 100 characters"),
+        ({"comment": "   too short   "}, "Write at least 10 characters."),
+        ({"comment": "x" * 2001}, "Keep it to 2,000 characters (this has 2,001)."),
+        ({"rating": ""}, "Choose a rating."),
+        ({"rating": "11"}, "Choose a rating."),
+    ],
+)
+def test_an_invalid_edit_re_renders_the_form_and_saves_nothing(
+    client, customer, product, changes, message
+):
+    review = make_review(customer, product, rating=8, comment="Still the original.")
+    client.force_login(customer)
+
+    response = client.post(edit_url(review), {**VALID, **changes})
+
+    assert response.status_code == HTTPStatus.OK
+    page = response.content.decode()
+    assert 'id="your-review"' in page
+    assert f'<form id="review-{review.pk}"' in page
+    assert "Save changes" in page
+    assert page.count(message) == 1
+    review.refresh_from_db()
+    assert (review.rating, review.comment, review.edited_at) == (
+        8,
+        "Still the original.",
+        None,
+    )
+
+
+def test_staff_cannot_author_edit_someone_elses_review(
+    client, customer, staff_user, product
+):
+    """Staff edits of other people's reviews go through moderation, which keeps the rating."""
+    review = make_review(customer, product, rating=8)
+    client.force_login(staff_user)
+
+    shown = client.get(edit_url(review))
+    saved = client.post(edit_url(review), {**VALID, "rating": "2"})
+
+    assert (shown.status_code, saved.status_code) == (
+        HTTPStatus.NOT_FOUND,
+        HTTPStatus.NOT_FOUND,
+    )
+    review.refresh_from_db()
+    assert review.rating == 8
+
+
+def test_another_customer_cannot_fetch_a_review_partial(client, customer, product):
+    review = make_review(customer, product)
+    client.force_login(shopper("dcole", "Dana", "Cole"))
+
+    assert client.get(detail_url(review)).status_code == HTTPStatus.NOT_FOUND
+
+
+def test_a_removed_review_cant_be_edited_or_fetched_by_its_author(
+    client, customer, product
+):
+    """Its text is never shown back to anyone, its author included."""
+    review = make_review(customer, product)
+    review.removed_at = timezone.now()
+    review.save()
+    client.force_login(customer)
+
+    assert client.get(edit_url(review)).status_code == HTTPStatus.NOT_FOUND
+    assert client.get(detail_url(review)).status_code == HTTPStatus.NOT_FOUND
+
+
+def test_visitors_are_sent_to_sign_in_from_edit(client, customer, product):
+    review = make_review(customer, product)
+
+    response = client.post(edit_url(review), VALID)
+
+    assert response.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in response.url
+
+
+def test_only_the_author_sees_edit_on_the_product_page(client, customer, product):
+    mine = make_review(customer, product)
+    theirs = make_review(shopper("dcole", "Dana", "Cole"), product)
+    client.force_login(customer)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert edit_url(mine) in page
+    assert edit_url(theirs) not in page
+
+
+def test_an_edited_review_says_so_in_the_list(client, product):
+    review = make_review(shopper("dcole", "Dana", "Cole"), product)
+    review.edited_at = timezone.now()
+    review.save()
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert "· Edited" in page
+    assert edit_url(review) not in page
+
+
 # --- The seed -------------------------------------------------------------------
 
 
