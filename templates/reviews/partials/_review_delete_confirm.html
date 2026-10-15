@@ -1,0 +1,16 @@
+{# The inline confirmation swapped over the author's own review by Delete. It takes the #}
+{# review's id, so "Keep it" can swap the review back over it unchanged. Delete posts #}
+{# and swaps the whole slot with the answer: the form again, or why there is none. #}
+<div id="review-{{ review.pk }}" class="rounded-box border border-error/40 bg-base-100 p-4">
+  <p class="font-semibold">Delete your review? This can't be undone.</p>
+  <div class="mt-3 flex flex-wrap gap-2">
+    <button type="button" class="btn btn-sm btn-error"
+            hx-post="{% url 'reviews:delete' review.pk %}"
+            hx-target="#your-review"
+            hx-swap="outerHTML">Delete</button>
+    <button type="button" class="btn btn-sm btn-ghost"
+            hx-get="{% url 'reviews:detail' review.pk %}"
+            hx-target="#review-{{ review.pk }}"
+            hx-swap="outerHTML">Keep it</button>
+  </div>
+</div>

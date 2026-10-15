@@ -213,14 +213,14 @@ out of band.
 
 ### Acceptance criteria
 
-- [ ] The confirm GET changes nothing; "Keep it" returns the review
+- [x] The confirm GET changes nothing; "Keep it" returns the review
       unchanged.
-- [ ] The delete POST removes the row and returns the slot in its new
+- [x] The delete POST removes the row and returns the slot in its new
       state, with out-of-band averages.
-- [ ] A still-eligible author can then write a new review.
-- [ ] An author whose order was cancelled after reviewing can still
+- [x] A still-eligible author can then write a new review.
+- [x] An author whose order was cancelled after reviewing can still
       delete, and then sees the not-bought note.
-- [ ] Another customer gets a 404.
+- [x] Another customer gets a 404.
 
 ---
 

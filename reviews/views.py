@@ -20,6 +20,7 @@ from .models import Review
 SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
 REVIEW_TEMPLATE = "reviews/partials/_review.html"
 FORM_TEMPLATE = "reviews/partials/_review_form.html"
+CONFIRM_DELETE_TEMPLATE = "reviews/partials/_review_delete_confirm.html"
 
 
 def slot_context(user, product, form=None):
@@ -151,4 +152,29 @@ class EditReviewView(ReviewActionMixin, View):
             request,
             SLOT_UPDATE_TEMPLATE,
             section_context(request.user, review.product, form),
+        )
+
+
+class DeleteReviewView(ReviewActionMixin, View):
+    """HTMX: the author's delete of their own review — a real deletion.
+
+    The GET swaps the inline "Delete your review?" confirmation over the
+    review and changes nothing; its "Keep it" fetches the review back
+    through ``reviews:detail``. The POST deletes the row and answers with
+    the slot as the database now has it — the form again for an author
+    who is still eligible, the not-bought note for one who isn't — plus
+    both averages out of band.
+    """
+
+    author_only = True
+
+    def get(self, request, pk):
+        return render(request, CONFIRM_DELETE_TEMPLATE, {"review": self.get_review()})
+
+    def post(self, request, pk):
+        review = self.get_review()
+        product = review.product
+        review.delete()
+        return render(
+            request, SLOT_UPDATE_TEMPLATE, section_context(request.user, product)
         )

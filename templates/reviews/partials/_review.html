@@ -33,12 +33,17 @@
       {% if review.edited_at %}· Edited{% endif %}
     </p>
     {% if review.user_id == user.pk %}
-      {# The author's own controls. Edit swaps the form over this review. #}
+      {# The author's own controls. Edit swaps the form over this review; Delete swaps #}
+      {# in the inline confirmation. Neither GET changes anything. #}
       <div class="mt-3 flex flex-wrap gap-2">
         <button type="button" class="btn btn-sm btn-outline"
                 hx-get="{% url 'reviews:edit' review.pk %}"
                 hx-target="#review-{{ review.pk }}"
                 hx-swap="outerHTML">Edit</button>
+        <button type="button" class="btn btn-sm btn-ghost text-error"
+                hx-get="{% url 'reviews:delete' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Delete</button>
       </div>
     {% endif %}
   </div>

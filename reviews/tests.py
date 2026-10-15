@@ -930,6 +930,163 @@ def test_an_edited_review_says_so_in_the_list(client, product):
     assert edit_url(review) not in page
 
 
+# --- Author delete (HTMX) ---------------------------------------------------------
+
+CONFIRM = "Delete your review? This can't be undone."
+
+
+def delete_url(review):
+    return reverse("reviews:delete", kwargs={"pk": review.pk})
+
+
+def test_the_delete_confirmation_changes_nothing(client, customer, product):
+    review = make_review(customer, product, comment="Still here after asking.")
+    client.force_login(customer)
+
+    response = client.get(delete_url(review))
+
+    assert response.status_code == HTTPStatus.OK
+    page = response.content.decode()
+    assert "<html" not in page
+    assert page.strip().startswith(f'<div id="review-{review.pk}"')
+    assert CONFIRM in page
+    assert f'hx-post="{delete_url(review)}"' in page
+    assert 'hx-target="#your-review"' in page
+    assert f'hx-get="{detail_url(review)}"' in page
+    assert "Keep it" in page
+    assert "hx-confirm" not in page
+    review.refresh_from_db()
+    assert review.comment == "Still here after asking."
+
+
+def test_keep_it_returns_the_review_unchanged(client, customer, product):
+    review = make_review(customer, product, rating=7, comment="Kept, as it was.")
+    client.force_login(customer)
+    client.get(delete_url(review))
+
+    response = client.get(detail_url(review))
+
+    page = response.content.decode()
+    assert page.strip().startswith(f'<article id="review-{review.pk}"')
+    assert "Kept, as it was." in page
+    assert f'hx-get="{delete_url(review)}"' in page
+    assert Review.objects.get().rating == 7
+
+
+def test_deleting_removes_the_row_and_updates_both_averages(client, customer, product):
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=6)
+    buy(customer, product)
+    review = make_review(customer, product, rating=10)
+    client.force_login(customer)
+
+    response = client.post(delete_url(review))
+
+    assert response.status_code == HTTPStatus.OK
+    assert not Review.objects.filter(pk=review.pk).exists()
+    page = response.content.decode()
+    assert "<html" not in page
+    assert 'id="your-review"' in page
+    assert f'id="review-{review.pk}"' not in page
+    assert page.count('hx-swap-oob="true"') == 2
+    assert 'id="reviews-summary"' in page
+    assert 'id="details-rating"' in page
+    assert "3.0 from 1 customer review" in page
+    assert "3.0 · 1 customer review" in page
+
+
+def test_a_still_eligible_author_can_write_again_after_deleting(
+    client, customer, product
+):
+    buy(customer, product)
+    review = make_review(customer, product, comment="The first attempt.")
+    client.force_login(customer)
+
+    response = client.post(delete_url(review))
+
+    page = response.content.decode()
+    assert "Post review" in page
+    assert create_url(product) in page
+    client.post(create_url(product), VALID)
+    assert Review.objects.get().comment == VALID["comment"]
+
+
+def test_an_author_whose_order_was_cancelled_can_still_delete(
+    client, customer, product
+):
+    """Then the slot has nothing to offer them: the not-bought note."""
+    order = buy(customer, product)
+    review = make_review(customer, product, comment="Before the refund.")
+    order.status = Order.Status.CANCELLED
+    order.save()
+    client.force_login(customer)
+
+    shown = client.get(delete_url(review))
+    response = client.post(delete_url(review))
+
+    assert shown.status_code == HTTPStatus.OK
+    assert not Review.objects.exists()
+    page = response.content.decode()
+    assert NOT_BOUGHT in page
+    assert "Post review" not in page
+
+
+def test_another_customer_cannot_delete_a_review(client, customer, product):
+    review = make_review(customer, product, comment="Not yours to delete.")
+    client.force_login(shopper("dcole", "Dana", "Cole"))
+
+    shown = client.get(delete_url(review))
+    deleted = client.post(delete_url(review))
+
+    assert (shown.status_code, deleted.status_code) == (
+        HTTPStatus.NOT_FOUND,
+        HTTPStatus.NOT_FOUND,
+    )
+    assert Review.objects.filter(pk=review.pk).exists()
+
+
+def test_staff_cannot_delete_someone_elses_review(
+    client, customer, staff_user, product
+):
+    """Staff take a review down with Remove, which keeps the row; delete is the author's."""
+    review = make_review(customer, product)
+    client.force_login(staff_user)
+
+    assert client.get(delete_url(review)).status_code == HTTPStatus.NOT_FOUND
+    assert client.post(delete_url(review)).status_code == HTTPStatus.NOT_FOUND
+    assert Review.objects.filter(pk=review.pk).exists()
+
+
+def test_a_staff_member_can_delete_their_own_review(client, staff_user, product):
+    review = make_review(staff_user, product)
+    client.force_login(staff_user)
+
+    response = client.post(delete_url(review))
+
+    assert response.status_code == HTTPStatus.OK
+    assert not Review.objects.exists()
+
+
+def test_visitors_are_sent_to_sign_in_from_delete(client, customer, product):
+    review = make_review(customer, product)
+
+    response = client.post(delete_url(review))
+
+    assert response.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in response.url
+    assert Review.objects.exists()
+
+
+def test_only_the_author_sees_delete_on_the_product_page(client, customer, product):
+    mine = make_review(customer, product)
+    theirs = make_review(shopper("dcole", "Dana", "Cole"), product)
+    client.force_login(customer)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert delete_url(mine) in page
+    assert delete_url(theirs) not in page
+
+
 # --- The seed -------------------------------------------------------------------
 
 

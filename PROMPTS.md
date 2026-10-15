@@ -30,6 +30,70 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 4/12, Author delete
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 4`.
+2. "Continue the implementation"
+3. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - The author's review in the "Your review" slot has a Delete button
+    beside Edit. It swaps in "Delete your review? This can't be undone.
+    [Delete] [Keep it]" in the review's place.
+  - Keep it fetches the review back unchanged through `reviews:detail`.
+  - Delete really deletes the row and re-renders the slot from the
+    database, with both averages out of band. An author who is still
+    eligible gets the form again. One whose order was cancelled gets the
+    not-bought note.
+
+  10 new tests; the full suite has 1,151, all passing. `ruff check`
+  and `ruff format` are clean. There are no migrations and no seed
+  changes.
+- **Changes:**
+  - `reviews/views.py` — `DeleteReviewView` on `ReviewActionMixin` with
+    `author_only`. The GET renders the confirmation; the POST deletes and
+    renders `_slot_update.html` from `section_context`.
+  - `reviews/urls.py` — `reviews:delete` at `reviews/<pk>/delete/`.
+  - `templates/reviews/partials/_review_delete_confirm.html` — new: the
+    inline confirmation. It takes `id="review-<pk>"`, so Keep it swaps
+    the review back over it, and Delete posts and replaces
+    `#your-review`.
+  - `templates/reviews/partials/_review.html` — the author's Delete
+    button.
+  - `reviews/tests.py` — tests for:
+    - the confirm GET and Keep it
+    - the delete POST and the out-of-band averages
+    - writing again after deleting
+    - deleting after a cancelled order
+    - 404s for another customer and for staff on someone else's review
+    - a staff member deleting their own review
+    - sign-in for visitors
+    - the Delete button showing only on the author's own review
+  - `plans/product-reviews.md` — Phase 4's criteria ticked.
+- **TDD:** skipped. Delete reuses the permission rule (`changeable_by`
+  plus `author_only`) and the slot logic (`slot_context`) that Phases
+  1–3 built and tested. It adds no new rule. Each acceptance criterion
+  has an ordinary test.
+- **Decisions:**
+  - Staff get a 404 when deleting someone else's review. Staff take
+    reviews down with Remove (Phase 8), which keeps the row. A staff
+    member's own review is theirs to delete.
+  - A removed review is still a 404 at `delete`. The mixin finds only
+    live reviews, and blanking a removed review's text belongs to
+    Phase 8.
+  - A second Delete POST for a row that's already gone is a 404. The
+    first response has already swapped the slot.
+  - The confirmation is the codebase's first inline confirm, so Phase 8's
+    Remove confirmation can follow it.
+- **Deviations:** none. The brief was approved as proposed.
+- **Sideways:** none. The suite was green on its first run.
+
+---
+
 ## 2026-10-15 — Product Reviews: Phase 3/12, Author edit
 
 ### Prompts
