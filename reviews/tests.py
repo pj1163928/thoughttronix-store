@@ -16,13 +16,15 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
 from products import images
-from products.models import Product
+from products.models import Category, Product, Tag
+from products.views import stars_phrase
 
 from .forms import ReviewForm
 from .models import Review
@@ -1304,3 +1306,385 @@ def test_the_picker_has_a_labelled_radio_per_rating_and_no_half_star(
         assert f'value="{value}" aria-label="{label}"' in page
     assert 'value="1"' not in page
     assert 'aria-label="½ star"' not in page
+
+
+# --- Catalog ratings: the soft dependency in with_ratings() ---------------------
+
+
+def test_with_ratings_agrees_with_the_counted_set(
+    customer, staff_user, product, featured_product, unavailable_product
+):
+    """``products`` repeats the counted set by string lookup; this keeps them in step.
+
+    A renamed ``reviews`` field, or a counted-set rule changed on one side
+    only, fails here rather than silently skewing the catalog.
+    """
+    make_review(shopper("dcole"), product, rating=7)
+    make_review(shopper("rpatel"), product, rating=10)
+    removed = make_review(customer, product, rating=2)
+    Review.objects.filter(pk=removed.pk).update(removed_at=timezone.now())
+    make_review(staff_user, product, rating=2)
+    make_review(staff_user, featured_product, rating=10)
+    make_review(customer, featured_product, rating=5)
+
+    annotated = {
+        item.pk: (item.rating_count, item.rating_average)
+        for item in Product.objects.with_ratings()
+    }
+
+    expected = {}
+    for item in (product, featured_product, unavailable_product):
+        summary = Review.objects.filter(product=item).rating_summary()
+        expected[item.pk] = (summary.count, summary.average)
+    assert expected == {
+        product.pk: (2, 4.25),
+        featured_product.pk: (1, 2.5),
+        unavailable_product.pk: (0, None),
+    }
+    assert annotated == expected
+
+
+# --- Catalog ratings: sort and filter --------------------------------------------
+
+
+def shelf(category, *names):
+    """Products by ``names`` in ``category``, at one price."""
+    return [
+        Product.objects.create(name=name, price=Decimal("99.00"), category=category)
+        for name in names
+    ]
+
+
+def review_all(product, *ratings, staff=False):
+    """One review of ``product`` per rating, each by a new shopper."""
+    for rating in ratings:
+        author = shopper(f"{product.slug}-{Review.objects.count()}")
+        author.is_staff = staff
+        author.save()
+        make_review(author, product, rating=rating)
+
+
+def test_sort_by_rating_orders_by_average_then_count_then_name(category):
+    """Highest average, more reviews breaking ties, then name; unreviewed last.
+
+    Brainwave Buds has only a staff review, so it counts as unreviewed.
+    Created in neither name nor rating order, so neither can pass by luck.
+    """
+    aurora, mnemo, echo, brainwave, zephyr, cogitator, seraphine = shelf(
+        category,
+        "Aurora Lens",
+        "Mnemo Clip",
+        "EchoPatch",
+        "Brainwave Buds",
+        "Zephyr Band",
+        "Cogitator Crown",
+        "Seraphine Home Hub",
+    )
+    review_all(zephyr, 9, 9)
+    review_all(seraphine, 9)
+    review_all(cogitator, 8)
+    review_all(echo, 8)
+    review_all(mnemo, 2, 2, 2)
+    review_all(brainwave, 10, staff=True)
+
+    ordered = Product.objects.with_ratings().by_rating()
+
+    assert [item.name for item in ordered] == [
+        "Zephyr Band",
+        "Seraphine Home Hub",
+        "Cogitator Crown",
+        "EchoPatch",
+        "Mnemo Clip",
+        "Aurora Lens",
+        "Brainwave Buds",
+    ]
+
+
+def test_lowest_rated_puts_the_worst_first_and_unreviewed_last(category):
+    """Lowest average first, more reviews breaking ties, then name; unreviewed last.
+
+    Created in neither name nor rating order, so neither can pass by luck.
+    """
+    aurora, zephyr, clip, brainwave, mnemo, cogitator = shelf(
+        category,
+        "Aurora Lens",
+        "Zephyr Band",
+        "Clip Two",
+        "Brainwave Buds",
+        "Mnemo Clip",
+        "Cogitator Crown",
+    )
+    review_all(zephyr, 9)
+    review_all(clip, 2)
+    review_all(mnemo, 2, 2, 2)
+    review_all(cogitator, 8)
+    review_all(brainwave, 2, staff=True)
+
+    ordered = Product.objects.with_ratings().by_rating(lowest_first=True)
+
+    assert [item.name for item in ordered] == [
+        "Mnemo Clip",
+        "Clip Two",
+        "Cogitator Crown",
+        "Zephyr Band",
+        "Aurora Lens",
+        "Brainwave Buds",
+    ]
+
+
+BAND_SHELF = {
+    # name -> customer ratings in half stars, then staff ratings
+    "Five": ([10], []),
+    "Four Point Seven Five": ([9, 10], []),
+    "Exactly Four": ([7, 9], []),
+    "Three Point Seven Five": ([7, 8], []),
+    "Three": ([6], [10]),
+    "One": ([2], []),
+    "Unreviewed": ([], []),
+    "Staff Only": ([], [8]),
+}
+
+
+@pytest.mark.parametrize(
+    ("stars", "kept"),
+    [
+        ([5], ["Five"]),
+        ([4], ["Exactly Four", "Four Point Seven Five"]),
+        ([3, 5], ["Five", "Three", "Three Point Seven Five"]),
+        ([1], ["One"]),
+        ([2], []),
+    ],
+)
+def test_star_bands_cover_their_whole_star(category, stars, kept):
+    """4 is 4.0 up to, not including, 5.0; 5 is exactly 5.0; unreviewed is in none.
+
+    Staff reviews never move a product into a band: "Three" has a staff
+    5 stars on top of its customer 3, and "Staff Only" is unreviewed.
+    """
+    for item in shelf(category, *BAND_SHELF):
+        customer_ratings, staff_ratings = BAND_SHELF[item.name]
+        review_all(item, *customer_ratings)
+        review_all(item, *staff_ratings, staff=True)
+
+    found = Product.objects.with_ratings().rated_in(stars)
+
+    assert sorted(item.name for item in found) == kept
+
+
+def test_no_star_bands_filters_nothing(category):
+    rated, unreviewed = shelf(category, "Rated", "Unreviewed")
+    review_all(rated, 6)
+
+    assert Product.objects.with_ratings().rated_in([]).count() == 2
+
+
+# --- Catalog ratings: the catalog and category pages ------------------------------
+
+
+def catalog(client, **params):
+    return client.get(reverse("products:catalog"), params)
+
+
+def names(response):
+    return [item.name for item in response.context["products"]]
+
+
+def test_the_annotation_survives_the_tag_filters_join(category, tag):
+    """Several tags and several reviews: the tag join mustn't multiply either."""
+    hub, other = shelf(category, "Tagged Hub", "Untagged Hub")
+    hub.tags.add(
+        tag,
+        Tag.objects.create(name="smart home", slug="smart-home"),
+        Tag.objects.create(name="new", slug="new"),
+    )
+    review_all(hub, 6, 8, 10)
+    review_all(other, 2)
+
+    for products in (
+        Product.objects.with_ratings().filter(tags__slug=tag.slug),
+        Product.objects.filter(tags__slug=tag.slug).with_ratings(),
+    ):
+        [found] = products
+        assert (found.name, found.rating_count, found.rating_average) == (
+            "Tagged Hub",
+            3,
+            4.0,
+        )
+
+
+def test_the_tag_filtered_catalog_shows_the_right_numbers(client, category, tag):
+    hub, other = shelf(category, "Tagged Hub", "Untagged Hub")
+    hub.tags.add(tag, Tag.objects.create(name="smart home", slug="smart-home"))
+    review_all(hub, 6, 8, 10)
+
+    response = catalog(client, tag=tag.slug)
+
+    [found] = response.context["products"]
+    assert (found.rating_count, found.rating_average) == (3, 4.0)
+    assert "4.0" in response.content.decode()
+
+
+def test_the_catalog_stays_in_name_order_by_default(client, category):
+    """``with_ratings()`` groups, and a grouped query drops ``Meta.ordering``."""
+    shelf(category, "Mnemo Clip", "Aurora Lens", "Zephyr Band")
+
+    assert names(catalog(client)) == ["Aurora Lens", "Mnemo Clip", "Zephyr Band"]
+
+
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        ("highest", ["Zephyr Band", "Mnemo Clip", "Aurora Lens"]),
+        ("lowest", ["Mnemo Clip", "Zephyr Band", "Aurora Lens"]),
+    ],
+)
+def test_the_catalog_sorts_by_rating_either_way(client, category, sort, expected):
+    aurora, mnemo, zephyr = shelf(category, "Aurora Lens", "Mnemo Clip", "Zephyr Band")
+    review_all(mnemo, 6)
+    review_all(zephyr, 10)
+
+    assert names(catalog(client, sort=sort)) == expected
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"sort": "price"},
+        {"sort": "rating"},
+        {"rating": "0"},
+        {"rating": "6"},
+        {"rating": "x"},
+    ],
+)
+def test_unknown_sorts_and_ratings_are_ignored(client, category, params):
+    aurora, zephyr = shelf(category, "Aurora Lens", "Zephyr Band")
+    review_all(zephyr, 10)
+
+    response = catalog(client, **params)
+
+    assert response.status_code == HTTPStatus.OK
+    assert names(response) == ["Aurora Lens", "Zephyr Band"]
+
+
+def test_ticked_star_boxes_filter_the_catalog(client, category):
+    five, four, three, unreviewed = shelf(
+        category, "Five Star", "Four Star", "Three Star", "Unreviewed"
+    )
+    review_all(five, 10)
+    review_all(four, 8)
+    review_all(three, 7)
+
+    response = catalog(client, rating=["5", "4"])
+
+    assert names(response) == ["Five Star", "Four Star"]
+    assert "averaging 4 or 5 stars" in response.content.decode()
+
+
+@pytest.mark.parametrize(
+    ("stars", "phrase"),
+    [
+        ([1], "1 star"),
+        ([5], "5 stars"),
+        ([5, 4], "4 or 5 stars"),
+        ([5, 3, 1], "1, 3 or 5 stars"),
+    ],
+)
+def test_the_ticked_bands_read_as_words(stars, phrase):
+    assert stars_phrase(stars) == phrase
+
+
+def test_rating_sort_and_filter_compose_with_search_tag_and_category(
+    client, category, tag
+):
+    defense = Category.objects.create(name="Defense", slug="defense")
+    hub, hub_low, hub_plain, hub_untagged = shelf(
+        category, "Hub Prime", "Hub Lite", "Hub Basic", "Hub Untagged"
+    )
+    [hub_elsewhere] = shelf(defense, "Hub Shield")
+    [other] = shelf(category, "Neural Band")
+    for item in (hub, hub_low, hub_plain, hub_elsewhere, other):
+        item.tags.add(tag)
+    review_all(hub, 8, 9)
+    review_all(hub_low, 8)
+    review_all(hub_plain, 7)
+    review_all(hub_untagged, 10)
+    review_all(hub_elsewhere, 10)
+    review_all(other, 10)
+    params = {"q": "hub", "tag": tag.slug, "sort": "lowest", "rating": ["4", "5"]}
+
+    on_catalog = catalog(client, category=category.slug, **params)
+    on_category = client.get(category.get_absolute_url(), params)
+
+    assert names(on_catalog) == ["Hub Lite", "Hub Prime"]
+    assert names(on_category) == ["Hub Lite", "Hub Prime"]
+
+
+def test_pagination_and_both_forms_keep_the_other_controls(client, category, tag):
+    for item in shelf(category, *(f"Widget {n:02d}" for n in range(13))):
+        item.tags.add(tag)
+        review_all(item, 9)
+    params = {"q": "widget", "tag": tag.slug, "sort": "highest", "rating": ["4", "5"]}
+
+    first = catalog(client, **params)
+    second = catalog(client, **params, page="2")
+
+    page = html.unescape(first.content.decode())
+    assert "?q=widget&tag=bestseller&sort=highest&rating=4&rating=5&page=2" in page
+    # The search form carries the sort and ratings; the rating form, search and tag.
+    for name, value in [
+        ("sort", "highest"),
+        ("rating", "5"),
+        ("rating", "4"),
+        ("q", "widget"),
+        ("tag", "bestseller"),
+    ]:
+        assert f'<input type="hidden" name="{name}" value="{value}" />' in page
+    assert names(second) == ["Widget 12"]
+    assert "Page 2 of 2" in second.content.decode()
+
+
+CHECKED_BOX = re.compile(r'value="(\d)"\s+class="[^"]*"\s+checked')
+
+
+def test_the_controls_show_which_are_active(client, category):
+    shelf(category, "Aurora Lens")
+
+    plain = catalog(client).content.decode()
+    active = catalog(client, sort="lowest", rating=["4", "5"]).content.decode()
+
+    assert re.search(r'aria-current="true">\s*Name', plain)
+    assert CHECKED_BOX.findall(plain) == []
+    assert re.search(r'aria-current="true">\s*Lowest rated', active)
+    assert "lowest rated first" in active
+    assert CHECKED_BOX.findall(active) == ["5", "4"]
+    assert "Nothing here averages 4 or 5 stars yet" in active
+
+
+def test_cards_show_the_customer_average_or_no_reviews_yet(
+    client, customer, staff_user, category
+):
+    rated, staff_only = shelf(category, "Rated Hub", "Staff Only")
+    review_all(rated, 7, 9)
+    removed = make_review(customer, rated, rating=2)
+    Review.objects.filter(pk=removed.pk).update(removed_at=timezone.now())
+    review_all(staff_only, 10, staff=True)
+
+    page = catalog(client).content.decode()
+
+    assert '4.0<span class="sr-only"> out of 5 stars</span> · 2 reviews' in page
+    assert page.count("No reviews yet") == 1
+
+
+def test_rendering_the_catalog_adds_no_query_per_card(client, category):
+    [first] = shelf(category, "Product 00")
+    review_all(first, 8)
+    with CaptureQueriesContext(connection) as one_card:
+        catalog(client)
+
+    for item in shelf(category, *(f"Product {n:02d}" for n in range(1, 8))):
+        review_all(item, 6, 9)
+    with CaptureQueriesContext(connection) as eight_cards:
+        response = catalog(client)
+
+    assert len(response.context["products"]) == 8
+    assert len(eight_cards) == len(one_card)

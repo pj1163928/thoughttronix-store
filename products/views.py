@@ -35,20 +35,58 @@ STORAGE_FAILED = (
     "The image couldn't be saved, so nothing was changed. Please try again."
 )
 
+# The catalog's sort menu, in menu order: querystring value -> label. ``None``
+# is the default, name order, which leaves ``sort`` out of the URL.
+CATALOG_SORTS = {None: "Name", "highest": "Highest rated", "lowest": "Lowest rated"}
+
+# The rating filter's boxes, best first: each is a whole-star band of averages.
+RATING_STARS = (5, 4, 3, 2, 1)
+
+
+def stars_phrase(stars):
+    """The ticked bands in words, lowest first: "1 star", "4 or 5 stars", "1, 3 or 5 stars"."""
+    words = [str(star) for star in sorted(stars)]
+    joined = words[0] if len(words) == 1 else f"{', '.join(words[:-1])} or {words[-1]}"
+    return f"{joined} star{'' if words == ['1'] else 's'}"
+
 
 class CatalogView(ListView):
-    """The public product catalog: search, tag and category filters, pagination.
+    """The public product catalog: search, tag, category and rating filters, pagination.
 
-    Filters arrive as querystring parameters (``q``, ``tag``, ``category``)
-    and compose freely.
+    Filters arrive as querystring parameters (``q``, ``tag``, ``category``,
+    and ``rating``, repeated once per ticked star band) and compose
+    freely. ``sort=highest`` or ``sort=lowest`` orders by customer
+    average, with unreviewed products last; anything else is name order.
     """
 
     template_name = "products/catalog.html"
     context_object_name = "products"
     paginate_by = 12
 
+    @cached_property
+    def sort(self):
+        """The chosen sort, a key of ``CATALOG_SORTS``; unknown values are name order."""
+        sort = self.request.GET.get("sort")
+        return sort if sort in CATALOG_SORTS else None
+
+    @cached_property
+    def ratings(self):
+        """The ticked star bands, best first; values outside 1–5 are ignored."""
+        ticked = set(self.request.GET.getlist("rating"))
+        return [star for star in RATING_STARS if str(star) in ticked]
+
     def get_queryset(self):
-        products = Product.objects.select_related("category").prefetch_related("tags")
+        products = (
+            Product.objects.select_related("category")
+            .prefetch_related("tags")
+            .with_ratings()
+        )
+        # A grouped query drops Meta.ordering, so name order is asked for.
+        if self.sort:
+            products = products.by_rating(lowest_first=self.sort == "lowest")
+        else:
+            products = products.order_by("name")
+        products = products.rated_in(self.ratings)
         query = self.request.GET.get("q", "").strip()
         if query:
             products = products.search(query)
@@ -64,6 +102,16 @@ class CatalogView(ListView):
         context = super().get_context_data(**kwargs)
         context["search_query"] = self.request.GET.get("q", "").strip()
         context["active_tag"] = self.request.GET.get("tag", "")
+        context["sort"] = self.sort
+        context["sorts"] = [
+            {"value": value, "label": label, "active": value == self.sort}
+            for value, label in CATALOG_SORTS.items()
+        ]
+        context["ratings"] = self.ratings
+        context["rating_boxes"] = [
+            {"stars": star, "checked": star in self.ratings} for star in RATING_STARS
+        ]
+        context["ratings_phrase"] = stars_phrase(self.ratings) if self.ratings else ""
         context["categories"] = Category.objects.all()
         context["tags"] = Tag.objects.all()
         return context

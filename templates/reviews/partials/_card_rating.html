@@ -1,0 +1,13 @@
+{# A catalog card's customer average and count, from the counted set. Rendered by the #}
+{# card_rating tag from with_ratings()'s annotations, so it costs no query of its own. #}
+<p class="flex flex-wrap items-center gap-2 text-sm">
+  {% if summary.count %}
+    {# The words beside the stars say the same thing, so the row stays out of the reading. #}
+    <span aria-hidden="true" class="inline-flex">
+      {% include "reviews/partials/_stars.html" with rating=summary.half_stars label="" only %}
+    </span>
+    <span><span class="sr-only">Rated </span>{{ summary.average_display }}<span class="sr-only"> out of 5 stars</span> · {{ summary.count }} review{{ summary.count|pluralize }}</span>
+  {% else %}
+    <span class="opacity-60">No reviews yet</span>
+  {% endif %}
+</p>

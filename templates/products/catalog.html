@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load cart_extras humanize %}
+{% load cart_extras humanize reviews_extras %}
 
 {% block title %}
   {% if category %}{{ category.name }}{% else %}Catalog{% endif %} — The ThoughtTronix Store
@@ -14,11 +14,15 @@
       <p class="mt-1 text-sm opacity-60">
         {{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}
         {% if search_query %}matching &ldquo;{{ search_query }}&rdquo;{% endif %}
+        {% if ratings %}averaging {{ ratings_phrase }}{% endif %}
+        {% if sort == "highest" %}· highest rated first{% elif sort == "lowest" %}· lowest rated first{% endif %}
       </p>
     </div>
 
     <form method="get" action="" class="join">
       {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}" />{% endif %}
+      {% if sort %}<input type="hidden" name="sort" value="{{ sort }}" />{% endif %}
+      {% for star in ratings %}<input type="hidden" name="rating" value="{{ star }}" />{% endfor %}
       <input
         type="search"
         name="q"
@@ -39,6 +43,41 @@
       {% endfor %}
     </div>
   {% endif %}
+
+  <div class="mb-4 flex flex-wrap items-center gap-2 text-sm">
+    <span class="opacity-60">Sort:</span>
+    {% for option in sorts %}
+      <a href="{% querystring sort=option.value page=None %}"
+         class="badge {% if option.active %}badge-primary{% else %}badge-ghost{% endif %}"
+         {% if option.active %}aria-current="true"{% endif %}>
+        {{ option.label }}
+      </a>
+    {% endfor %}
+  </div>
+
+  {# Ticking boxes needs a submit: the catalog has no script but HTMX, and this isn't a swap. #}
+  {# Each box is a whole-star band of averages (4 is 4.0 up to 5.0). The hidden inputs keep #}
+  {# the other filters, so Apply changes only the ratings and starts again from page one. #}
+  <form method="get" action="" class="mb-4 flex flex-wrap items-center gap-3 text-sm"
+        role="group" aria-labelledby="rating-filter-label">
+    {% if search_query %}<input type="hidden" name="q" value="{{ search_query }}" />{% endif %}
+    {% if active_tag %}<input type="hidden" name="tag" value="{{ active_tag }}" />{% endif %}
+    {% if request.GET.category %}<input type="hidden" name="category" value="{{ request.GET.category }}" />{% endif %}
+    {% if sort %}<input type="hidden" name="sort" value="{{ sort }}" />{% endif %}
+    <span id="rating-filter-label" class="opacity-60">Customer rating:</span>
+    {% for box in rating_boxes %}
+      <label class="flex cursor-pointer items-center gap-1">
+        <input type="checkbox" name="rating" value="{{ box.stars }}"
+               class="checkbox checkbox-primary checkbox-sm"
+               {% if box.checked %}checked{% endif %} />
+        <span>{{ box.stars }}<span aria-hidden="true">★</span><span class="sr-only"> star{{ box.stars|pluralize }}</span></span>
+      </label>
+    {% endfor %}
+    <button type="submit" class="btn btn-primary btn-xs">Apply</button>
+    {% if ratings %}
+      <a href="{% querystring rating=None page=None %}" class="link link-hover opacity-70">Any rating</a>
+    {% endif %}
+  </form>
 
   {% if tags %}
     <div class="mb-8 flex flex-wrap items-center gap-2 text-sm">
@@ -78,6 +117,7 @@
           {% if product.tagline %}
             <p class="text-sm italic opacity-70">{{ product.tagline }}</p>
           {% endif %}
+          {% card_rating product %}
           <div class="card-actions items-center justify-between">
             <p class="text-lg font-semibold text-primary">${{ product.price|intcomma }}</p>
             {% include "orders/partials/_add_button.html" with in_cart=cart_quantities|quantity_of:product.pk %}
@@ -92,6 +132,13 @@
           <p class="mt-2 opacity-70">Try thinking different thoughts. We'll know.</p>
           <a href="{% querystring q=None tag=None page=None %}" class="btn btn-primary btn-sm mt-6">
             Clear search
+          </a>
+        {% elif ratings %}
+          <p class="text-5xl">⭐</p>
+          <p class="mt-4 text-xl font-semibold">Nothing here averages {{ ratings_phrase }} yet</p>
+          <p class="mt-2 opacity-70">Our customers are hard to impress. Or they haven't written in.</p>
+          <a href="{% querystring rating=None page=None %}" class="btn btn-primary btn-sm mt-6">
+            Show every rating
           </a>
         {% elif category %}
           <p class="text-5xl">🗄️</p>

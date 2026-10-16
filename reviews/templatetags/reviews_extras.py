@@ -1,6 +1,6 @@
 from django import template
 
-from reviews.models import Review
+from reviews.models import RatingSummary, Review
 from reviews.views import list_context, section_context
 
 register = template.Library()
@@ -26,6 +26,20 @@ def reviews_section(context, product):
 def review_rating(product):
     """The details card's small customer average and count, linking to the section."""
     return {"summary": Review.objects.filter(product=product).rating_summary()}
+
+
+@register.inclusion_tag("reviews/partials/_card_rating.html")
+def card_rating(product):
+    """A catalog card's customer average and count, read from ``with_ratings()``.
+
+    The product must come from ``ProductQuerySet.with_ratings()``: the tag
+    reads its annotations, so a grid of cards adds no query per card.
+    """
+    return {
+        "summary": RatingSummary(
+            count=product.rating_count, average=product.rating_average
+        )
+    }
 
 
 @register.filter

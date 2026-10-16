@@ -72,6 +72,57 @@ class ProductQuerySet(models.QuerySet):
             models.Q(name__icontains=text) | models.Q(description__icontains=text)
         )
 
+    def with_ratings(self):
+        """Annotate ``rating_count`` and ``rating_average`` from customer reviews.
+
+        ``rating_average`` is in stars (1.0–5.0), or ``None`` for a product
+        with no counted reviews. Both come from the counted set: reviews
+        that are neither removed nor ``by_staff``.
+
+        A deliberate soft dependency: ``products`` never imports
+        ``reviews``, so this repeats ``ReviewQuerySet.counted()`` by string
+        lookup through the reverse relation. A test in ``reviews`` checks
+        the two agree, so a renamed field fails a test rather than
+        silently emptying the catalog's numbers.
+        """
+        counted = models.Q(reviews__removed_at__isnull=True, reviews__by_staff=False)
+        return self.annotate(
+            rating_count=models.Count("reviews", filter=counted),
+            rating_average=models.Avg("reviews__rating", filter=counted) / 2,
+        )
+
+    def by_rating(self, *, lowest_first=False):
+        """Best rated first, or worst with ``lowest_first``; then more reviews, then name.
+
+        More reviews break a tie either way, since an average from more
+        customers says more. Products without a counted review always go
+        last, so Lowest rated never leads with an unreviewed product.
+        Needs ``with_ratings()``.
+        """
+        average = models.F("rating_average")
+        return self.order_by(
+            average.asc(nulls_last=True)
+            if lowest_first
+            else average.desc(nulls_last=True),
+            "-rating_count",
+            "name",
+        )
+
+    def rated_in(self, stars):
+        """Products whose customer average falls in any of the whole-star bands ``stars``.
+
+        Each band covers its whole star: 4 is an average from 4.0 up to,
+        not including, 5.0, and 5 is exactly 5.0. Unreviewed products are
+        in no band. With no ``stars``, nothing is filtered. Needs
+        ``with_ratings()``.
+        """
+        if not stars:
+            return self
+        bands = models.Q()
+        for star in stars:
+            bands |= models.Q(rating_average__gte=star, rating_average__lt=star + 1)
+        return self.filter(bands)
+
 
 class Product(models.Model):
     """A catalog product.

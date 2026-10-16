@@ -33,8 +33,9 @@ Durable decisions that apply across all phases:
   | Back-office Reviews tab | `/backoffice/reviews/` | `manage` |
 
 - **Querystring parameters**:
-  - catalog and category pages: `sort=rating` and `min_rating=4`,
-    composing with `q`, `tag` and `category`
+  - catalog and category pages: `sort=highest|lowest` and `rating`
+    (1–5, repeated once per ticked star box), composing with `q`, `tag`
+    and `category`
   - the product page's review list: `sort=newest|highest|lowest` and
     `page`
   - the Reviews tab: `product` (pk), `rating` (stored half-star value),
@@ -260,24 +261,30 @@ average and count from the counted set, by string lookup through
 dependency, and a test in `reviews` checks that it agrees with the
 `reviews`-side counted set. Catalog cards show the stars and count, or
 "No reviews yet", from the annotation with no per-card query. The
-catalog and category pages gain sort by rating (highest average, then
-more reviews, then name, unreviewed last) and "4 stars & up" (average at
-least 4.0, unreviewed excluded). Both compose with `q`, `tag` and
-`category`, survive pagination, and show when they are active.
+catalog and category pages gain sort by rating, Highest rated or Lowest
+rated (average, then more reviews, then name, unreviewed last either
+way), and a rating filter of five star checkboxes. Each box is a
+whole-star band of averages (4 is 4.0 up to, not including, 5.0; 5 is
+exactly 5.0), any mix may be ticked, and unreviewed products are in no
+band. Both compose with `q`, `tag` and `category`, survive pagination,
+and show when they are active.
+
+*Changed 2026-10-15 at the user's request, after the phase was first
+built with the PRD's single "4 stars & up" filter and one rating sort.*
 
 ### Acceptance criteria
 
-- [ ] `with_ratings()` matches the `reviews` counted set, excluding
+- [x] `with_ratings()` matches the `reviews` counted set, excluding
       removed and staff reviews.
-- [ ] A product with several tags and several reviews keeps the right
+- [x] A product with several tags and several reviews keeps the right
       average and count under the tag filter.
-- [ ] Sort by rating orders by average, then count, then name, with
-      unreviewed products last.
-- [ ] "4 stars & up" keeps products averaging 4.0 or more and drops
-      unreviewed ones.
-- [ ] Both combine with search, tag and category, and pagination links
+- [x] Highest and Lowest rated order by average, then count, then name,
+      with unreviewed products last.
+- [x] Ticked star boxes keep products whose average falls in any ticked
+      band and drop unreviewed ones; ticking 4 and 5 is "4 stars & up".
+- [x] Both combine with search, tag and category, and pagination links
       keep them.
-- [ ] Rendering the catalog adds no query per card.
+- [x] Rendering the catalog adds no query per card.
 
 ---
 

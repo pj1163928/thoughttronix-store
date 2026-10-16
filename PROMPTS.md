@@ -30,6 +30,149 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 6/12, Catalog ratings
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 6`.
+2. "Continue with implementing features"
+3. "Continue next phase"
+4. "Continue next phase"
+5. "Continue next phase"
+6. "Continue next phase"
+7. "Continue next phase"
+8. Answered "Don't commit" to the commit offer.
+9. "Ok for catalog reviews can we make it possible to finely tune which
+   ratings I would like to see like box select numbers through 5 and stort
+   through the highest and lowest rated products that have reviews"
+10. Answered two follow-up questions: the filter should be "Star
+    checkboxes", and unreviewed products should be "Listed last" in both
+    rating sorts.
+
+### Summary
+
+- **Outcome:**
+  - Catalog and category cards show each product's customer average and
+    review count ("4.0 · 12 reviews"), or "No reviews yet". The numbers
+    come from an annotation, with no query per card.
+  - A "Sort" row offers Name (the default), Highest rated and Lowest
+    rated. Both rating sorts list unreviewed products last.
+  - A "Customer rating" row has five star checkboxes (5★ to 1★) and an
+    Apply button. Each box is a whole-star band of averages: 4★ is 4.0 up
+    to, not including, 5.0, and 5★ is exactly 5.0. Any mix may be ticked.
+    Unreviewed products are in no band, and "Any rating" clears the boxes.
+  - Both compose with `q`, `tag` and `category`. Pagination, the tag
+    links and both forms keep them. The active ones are highlighted
+    (`aria-current`, ticked boxes) and named in the count line ("averaging
+    4 or 5 stars · lowest rated first"). A filter with no matches gets its
+    own empty state.
+
+  29 new tests (counting parametrized cases); the full suite has 1,197,
+  all passing. `ruff check` and `ruff format` are clean. There are no
+  migrations and no seed changes.
+- **Changes:**
+  - `products/models.py` — three new `ProductQuerySet` methods:
+    - `with_ratings()`: `rating_count` and `rating_average` (in stars).
+      Each is a `Count`/`Avg` over `reviews__…`, filtered to the counted
+      set by string lookup. The docstring records the soft dependency.
+    - `by_rating(lowest_first=False)`: average either way with NULLs
+      last, then more reviews, then name.
+    - `rated_in(stars)`: an OR of whole-star bands.
+  - `products/views.py` — `CATALOG_SORTS`, `RATING_STARS` and
+    `stars_phrase()`. `CatalogView` reads `sort=highest|lowest` and every
+    `rating` value from 1 to 5, ignoring anything else, always annotates
+    and asks for name order explicitly. It passes the sort options, the
+    box states and the phrase to the template. `CategoryView` inherits
+    all of it.
+  - `reviews/templatetags/reviews_extras.py` — `{% card_rating product %}`
+    builds a `RatingSummary` from the annotations, so the card rounds and
+    displays exactly as the product page does.
+  - `templates/reviews/partials/_card_rating.html` — new: stars (hidden
+    from screen readers) plus "4.0 · N reviews", with screen-reader-only
+    "Rated … out of 5 stars".
+  - `templates/products/catalog.html` — the sort row, the rating form
+    (with hidden `q`, `tag`, `category` and `sort`), hidden `sort` and
+    `rating` inputs on the search form, the card rating, the count-line
+    wording and the rating empty state.
+  - `reviews/tests.py` — the TDD tests, plus tests for:
+    - Lowest rated
+    - each star band's edges, with none ticked filtering nothing
+    - the tag join, with the filter applied before and after the
+      annotation
+    - the tag-filtered catalog page
+    - default name order
+    - both sorts and the boxes through the view
+    - unknown values being ignored (including the retired
+      `sort=rating`)
+    - the phrase wording
+    - all parameters composed, on the catalog and a category page
+    - pagination and both forms' carry-over
+    - active states and the empty state
+    - card wording (removed and staff reviews excluded)
+    - no query per card
+  - `plans/product-reviews.md` — Phase 6's criteria ticked. The
+    querystring parameters, the phase text and two criteria were
+    rewritten for the new controls, with a dated note.
+- **TDD:** three behaviors, with approval at each step.
+  1. `with_ratings()` matches the `reviews` counted set. Red against a
+     stub that annotated zero and `None`; green with the counted-set
+     `Q`.
+  2. Sort by rating: average, then count, then name, unreviewed (and
+     staff-only) last. Green with `by_rating()`.
+  3. "4 stars & up": exactly 4.0 kept; 3.75, unreviewed, staff-only and
+     staff-lifted dropped. Green with `rated_at_least()`. Prompt 9 then
+     retired that filter. Its test was replaced by the star-band test,
+     which keeps the same staff-review and unreviewed cases.
+
+  The Lowest rated and star-band tests came after TDD, written with the
+  code. Each was mutation-checked: ignoring `lowest_first` failed 2
+  tests, and an inclusive upper band edge failed 3.
+- **Decisions:**
+  - Each box covers its whole star, so 4★ includes a 4.5 average and 5★
+    is a perfect score only. Ticking 4★ and 5★ gives the old "4 stars &
+    up".
+  - The boxes need an Apply button. The catalog uses no script but HTMX,
+    and this is a normal page load, not a swap.
+  - Lowest rated breaks ties by more reviews first, the same as Highest
+    rated: the average from more customers comes first either way.
+  - Unrecognised values (`sort=rating`, `rating=0`, `rating=6`,
+    `rating=x`) are ignored rather than refused.
+  - Category badge links still open a fresh category page without the
+    current filters, as they did before.
+  - The average is annotated in stars, not half stars, so the card can
+    reuse `RatingSummary`'s round-half-up display.
+  - The catalog tests live in `reviews/tests.py`, beside its review
+    helpers, so `products/tests.py` doesn't need review fixtures.
+- **Deviations:**
+  - Prompt 9 replaced the PRD's single "4 stars & up" filter (user story
+    8) and its single rating sort (user story 7). The plan was updated;
+    the PRD was left unchanged, so its amendment can come with Phase 12's
+    documentation.
+  - Every "Continue next phase" was taken as approval of the current TDD
+    step, not as a jump to Phase 7.
+- **Sideways:**
+  - Behavior 2's first test passed against the stub. `with_ratings()`
+    groups by product, and Django drops `Meta.ordering` from grouped
+    queries. Rows came back in insertion order, which the test happened
+    to match. Reshuffling the creation order made it fail properly.
+  - The same fact meant the default catalog would have lost its name
+    order. The view now calls `order_by("name")` itself, and a test
+    covers it.
+  - The no-query-per-card test was mutation-checked: a per-card
+    `rating_summary()` turned it red (13 queries against 6), then the
+    tag was restored.
+  - A wait loop for the first full test run matched ruff's "All checks
+    passed!" instead of pytest's summary. It was caught before any count
+    was reported.
+  - Two bash heredocs (the test rewrite and this entry) failed on
+    quoting; both were rerun as files.
+  - The first count written here (30 new tests, 1,198) was wrong: three
+    tests were rewrites, not additions. It was corrected to the suite's
+    real 1,197.
+  - Rendering the catalog against the dev database from a shell, as a
+    sanity check, modified `db.sqlite3`. It was left out of the commit
+    unless the user asks for it.
+
 ## 2026-10-15 — Product Reviews: Phase 5/12, Show more and sort
 
 ### Prompts
