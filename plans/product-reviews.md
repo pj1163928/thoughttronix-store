@@ -332,15 +332,15 @@ gains one removed review.
 
 ### Acceptance criteria
 
-- [ ] The confirm GET changes nothing; Cancel returns the review.
-- [ ] Removing hides the review from the product page, the list endpoint
+- [x] The confirm GET changes nothing; Cancel returns the review.
+- [x] Removing hides the review from the product page, the list endpoint
       and every average, count, sort and filter, the catalog's included.
-- [ ] The author sees the removal notice and cannot create a new review,
+- [x] The author sees the removal notice and cannot create a new review,
       even with a direct POST.
-- [ ] The author's delete of a removed review blanks its text, keeps the
+- [x] The author's delete of a removed review blanks its text, keeps the
       row and shows the extra line; Delete is then gone.
-- [ ] A customer who isn't the author gets a 404 on the remove endpoints.
-- [ ] After `seed`, one review is removed and its author sees the notice.
+- [x] A customer who isn't the author gets a 404 on the remove endpoints.
+- [x] After `seed`, one review is removed and its author sees the notice.
 
 ---
 

@@ -30,6 +30,115 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 8/12, Staff remove and the removed states
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 8`.
+2. "Yes; continue development"
+3. "Looks good continue development"
+4. "Yes continue development"
+5. "Yes continue development"
+6. "Yes continue development"
+7. "Continue with development"
+8. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - Staff viewing a product page see Remove beside Edit on every other
+    review in the list. It swaps in "Remove this review? [Remove]
+    [Cancel]". Remove sets `removed_at` and `removed_by`, swaps the
+    review's whole row out of the list, and updates the section summary
+    and the details-card average out of band. Cancel swaps the review
+    back.
+  - A removed review is gone from the product page, the list endpoint,
+    `with_ratings()`, the catalog's rating sorts and its star filter.
+  - Its author's "Your review" slot shows "Your review was removed by
+    ThoughtTronix staff." and no form; a direct create POST writes
+    nothing and returns the notice. While the text remains the notice
+    offers Delete ("Delete your review's text? This can't be undone.
+    [Delete] [Keep it]"), which blanks headline and comment, keeps the
+    row, and adds "You've deleted its text." with Delete gone.
+  - The seed gains one removed review: Gordon Finch's one-star RecallPro
+    review naming his neighbour's street, removed by `employee`. Still
+    53 orders; 27 reviews.
+  - 10 new tests; the full suite has 1,222, all passing. `ruff check` and
+    `ruff format` are clean. No migrations.
+- **Changes:**
+  - `reviews/models.py` — `Review.remove(staff)` and
+    `Review.delete_text()`, which saves without `full_clean` so the
+    comment-length rule doesn't apply.
+  - `reviews/views.py` — `RemoveReviewView` (staff only, other people's
+    live reviews; GET confirm, POST remove). An `allow_removed` flag on
+    `ReviewActionMixin`: a removed review is a 404 unless the view opts
+    in, and then only for its author. `ReviewDetailView` returns the
+    removal notice for a removed review; `DeleteReviewView` blanks a
+    removed review's text and still truly deletes a live one.
+  - `reviews/urls.py` — `reviews:remove` at `/reviews/<pk>/remove/`.
+  - `templates/reviews/partials/_review_remove_confirm.html` — new: the
+    inline confirmation, taking the review's id.
+  - `templates/reviews/partials/_review_removed.html` — new: the remove
+    response, empty in place of the row plus both out-of-band averages.
+  - `templates/reviews/partials/_review_removed_notice.html` — new: the
+    author's notice, with Delete or "You've deleted its text."
+  - `templates/reviews/partials/_review.html` — staff Remove on other
+    people's reviews.
+  - `templates/reviews/partials/_review_page.html` — each listed review's
+    wrapper gets `id="review-row-<pk>"`, the remove swap's target.
+  - `templates/reviews/partials/_your_review.html` — the removed state.
+  - `templates/reviews/partials/_review_delete_confirm.html` — the
+    removed-review wording.
+  - `products/management/commands/seed.py` — Gordon's RecallPro review,
+    `REMOVAL` and `_apply_removal()`, refusing a non-staff remover or the
+    author.
+  - `reviews/tests.py` — the TDD tests, plus tests for: staff seeing
+    Remove and customers not; the confirmation's targets and Cancel;
+    removed reviews out of staff reach; visitors; the removed-text
+    confirmation; another customer's delete; and the seed. The Phase 3
+    test that expected a 404 when an author fetched their removed review
+    now expects the notice, still without the text.
+  - `plans/product-reviews.md` — Phase 8's criteria ticked.
+- **TDD:** three behaviors, with approval at each step.
+  1. Only staff remove, and only other people's reviews. Red: 405 from
+     the empty view shell. Green with `RemoveReviewView` on the existing
+     `staff_only` path and `Review.remove()`.
+  2. A removed review leaves every list and number. Never red: earlier
+     phases' counted set and behavior 1's response already covered it.
+     Reported as such; three temporary breakages (`with_ratings()`,
+     `listed_for()`, the out-of-band details card) each failed it, and
+     the user kept it as a regression guard.
+  3. A removed review still blocks its author. Red: the slot showed the
+     removed text. Green with the slot's removed branch, the notice
+     partial, `allow_removed` and `delete_text()`.
+- **Decisions:**
+  - The seed's removed review is a new one, not an existing one, so
+    Seraphine keeps twelve reviews averaging 4.0; Gordon already held an
+    order, so orders stay at 53.
+  - Deleting a removed review's text is confirmed as "Delete your
+    review's text? This can't be undone."; "Keep it" fetches the notice
+    back through `reviews:detail`, which never shows the text.
+  - Staff get a 404 on any removed review from the product-page
+    endpoints, `detail` included; Phase 10's Reviews tab will decide what
+    staff see there.
+  - A second delete POST on already-blanked text is a harmless no-op.
+  - Known limitation: Show more pages by offset, so after a removal from
+    page one, the review that moves up into the first ten isn't shown
+    until a reload.
+- **Deviations:** none; every step was approved as proposed.
+- **Sideways:**
+  - A combined shell command with nested heredocs failed to parse; the
+    edits were moved into a scratchpad script.
+  - That script's first run read files as cp1252, so an em dash didn't
+    match and it stopped partway, and `write_text` had turned four files'
+    line endings to CRLF. Caught by its assertion and `git ls-files
+    --eol`; endings were restored to LF and the script made UTF-8 and
+    byte-exact before rerunning.
+  - Running `seed` twice, to check idempotence, modified `db.sqlite3`
+    (already modified before the phase began).
+
+---
+
 ## 2026-10-15 — Product Reviews: Phase 7/12, Staff edit on the product page
 
 ### Prompts

@@ -1,8 +1,14 @@
-{# The inline confirmation swapped over the author's own review by Delete. It takes the #}
-{# review's id, so "Keep it" can swap the review back over it unchanged. Delete posts #}
-{# and swaps the whole slot with the answer: the form again, or why there is none. #}
+{# The inline confirmation swapped over the author's own review, or its removal notice, #}
+{# by Delete. It takes the review's id, so "Keep it" can swap either back over it #}
+{# unchanged. Delete posts and swaps the whole slot with the answer: the form again, or #}
+{# why there is none. #}
 <div id="review-{{ review.pk }}" class="rounded-box border border-error/40 bg-base-100 p-4">
-  <p class="font-semibold">Delete your review? This can't be undone.</p>
+  {% if review.removed_at %}
+    {# Staff removed it: deleting takes its words out of the store's records. #}
+    <p class="font-semibold">Delete your review's text? This can't be undone.</p>
+  {% else %}
+    <p class="font-semibold">Delete your review? This can't be undone.</p>
+  {% endif %}
   <div class="mt-3 flex flex-wrap gap-2">
     <button type="button" class="btn btn-sm btn-error"
             hx-post="{% url 'reviews:delete' review.pk %}"

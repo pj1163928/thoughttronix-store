@@ -20,4 +20,5 @@ urlpatterns = [
         views.ModerateReviewView.as_view(),
         name="moderate",
     ),
+    path("reviews/<int:pk>/remove/", views.RemoveReviewView.as_view(), name="remove"),
 ]

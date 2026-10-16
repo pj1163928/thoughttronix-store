@@ -802,6 +802,16 @@ REVIEWS = {
             "plays on a loop every June.",
             22,
         ),
+        (
+            "gfinch",
+            2,
+            "Proof my neighbour is a thief",
+            # Names a private person and their street; REMOVAL takes it down.
+            "Bought this to prove Derek at 14 Larkspur Road took my hedge "
+            "trimmer. Derek, I have every word you said on the third of June. "
+            "Everyone on Larkspur Road deserves to hear it.",
+            35,
+        ),
     ],
     "calm-collar": [
         (
@@ -860,6 +870,11 @@ STAFF_EDIT = (
     "[PIN removed by ThoughtTronix staff.] Three stars.",
     15,
 )
+
+# The one review staff removed, so the removed states can be demoed: it is
+# gone from the product page and every number, and its author's slot shows
+# the removal notice. (product slug, author, staff username, days ago).
+REMOVAL = ("recallpro", "gfinch", "employee", 33)
 
 # How long before their first review a background reviewer's order was placed.
 REVIEWED_AFTER_DAYS = 10
@@ -1274,6 +1289,7 @@ class Command(BaseCommand):
                 review.full_clean()
                 review.save()
         self._apply_staff_edit(now)
+        self._apply_removal(now)
 
     def _apply_staff_edit(self, now):
         """STAFF_EDIT, made as a staff member's edit on the site would make it."""
@@ -1287,6 +1303,18 @@ class Command(BaseCommand):
         review.moderated_at = now - timedelta(days=days_ago)
         review.moderated_by = staff
         review.full_clean()
+        review.save()
+
+    def _apply_removal(self, now):
+        """REMOVAL, made as a staff member's Remove on the site would make it."""
+        slug, author, remover, days_ago = REMOVAL
+        User = get_user_model()
+        review = Review.objects.get(product__slug=slug, user__username=author)
+        staff = User.objects.get(username=remover)
+        if not staff.is_staff or staff == review.user:
+            raise CommandError(f"{remover} can't remove {author}'s review.")
+        review.removed_at = now - timedelta(days=days_ago)
+        review.removed_by = staff
         review.save()
 
     def _build_order(self, *, user, created_at, status, lines, rng):

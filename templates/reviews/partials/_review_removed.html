@@ -1,0 +1,5 @@
+{# The answer to a staff removal on the product page: nothing in place of the review's #}
+{# row, so it leaves the list, plus the section summary and the details-card average #}
+{# swapped out of band, since a removed review leaves every number. #}
+{% include "reviews/partials/_reviews_summary.html" with oob=True %}
+{% include "reviews/partials/_details_rating.html" with oob=True %}

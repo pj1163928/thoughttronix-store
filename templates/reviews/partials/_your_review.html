@@ -4,7 +4,11 @@
 <div id="your-review" class="card bg-base-200 p-6">
   {% if review %}
     <h3 class="text-lg font-semibold">Your review</h3>
-    {% if editing %}
+    {% if review.removed_at %}
+      {# Removed by staff: the notice, never the text. The row still holds the #}
+      {# one-review-per-product rule, so there is no form either. #}
+      {% include "reviews/partials/_review_removed_notice.html" %}
+    {% elif editing %}
       {# A rejected edit: the form again, with its errors. #}
       {% include "reviews/partials/_review_form.html" %}
     {% else %}

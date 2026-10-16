@@ -892,17 +892,24 @@ def test_another_customer_cannot_fetch_a_review_partial(client, customer, produc
     assert client.get(detail_url(review)).status_code == HTTPStatus.NOT_FOUND
 
 
-def test_a_removed_review_cant_be_edited_or_fetched_by_its_author(
+def test_a_removed_review_cant_be_edited_and_comes_back_as_the_notice(
     client, customer, product
 ):
-    """Its text is never shown back to anyone, its author included."""
-    review = make_review(customer, product)
+    """Its text is never shown back to anyone, its author included.
+
+    Fetching it, as "Keep it" does over the delete confirmation, gives
+    its author the removal notice instead.
+    """
+    review = make_review(customer, product, comment="Words staff took down.")
     review.removed_at = timezone.now()
     review.save()
     client.force_login(customer)
 
     assert client.get(edit_url(review)).status_code == HTTPStatus.NOT_FOUND
-    assert client.get(detail_url(review)).status_code == HTTPStatus.NOT_FOUND
+    fetched = client.get(detail_url(review)).content.decode()
+    assert fetched.strip().startswith(f'<div id="review-{review.pk}"')
+    assert "Your review was removed by ThoughtTronix staff." in fetched
+    assert "Words staff took down." not in fetched
 
 
 def test_visitors_are_sent_to_sign_in_from_edit(client, customer, product):
@@ -1930,3 +1937,256 @@ def test_the_seed_has_one_review_edited_by_staff(client):
     assert moderated.moderated_at > moderated.created_at
     assert "4417" not in moderated.comment
     assert "· Edited by ThoughtTronix staff" in page
+
+
+# --- Staff remove (HTMX) ----------------------------------------------------------
+
+
+def remove_url(review):
+    return reverse("reviews:remove", kwargs={"pk": review.pk})
+
+
+def test_only_staff_remove_and_only_other_peoples_reviews(
+    client, customer, staff_user, product
+):
+    """Staff remove someone else's review; everyone else, and their own, is a 404.
+
+    Another customer is outside the one permission rule; an author, staff
+    or not, deletes their own review rather than removing it. The
+    confirmation GET changes nothing, even for staff.
+    """
+    customers = make_review(customer, product, comment="The customer's words.")
+    staffs = make_review(staff_user, product, comment="The employee's words.")
+    dana = shopper("dcole", "Dana", "Cole")
+
+    for user, review in [
+        (dana, customers),
+        (customer, customers),
+        (staff_user, staffs),
+    ]:
+        client.force_login(user)
+        shown = client.get(remove_url(review))
+        removed = client.post(remove_url(review))
+        assert (shown.status_code, removed.status_code) == (
+            HTTPStatus.NOT_FOUND,
+            HTTPStatus.NOT_FOUND,
+        ), (user.username, review.comment)
+
+    client.force_login(staff_user)
+    confirm = client.get(remove_url(customers))
+    assert confirm.status_code == HTTPStatus.OK
+    assert "Remove this review?" in confirm.content.decode()
+    assert not Review.objects.filter(removed_at__isnull=False).exists()
+
+    client.post(remove_url(customers))
+
+    customers.refresh_from_db()
+    staffs.refresh_from_db()
+    assert customers.removed_at is not None
+    assert customers.removed_by == staff_user
+    assert (staffs.removed_at, staffs.removed_by) == (None, None)
+
+
+def test_a_removed_review_leaves_every_list_and_number(client, staff_user, category):
+    """Removing the one-star review lifts the average from 3.0 to 5.0 everywhere.
+
+    The response swaps both averages out of band; the product page, the
+    list endpoint, ``with_ratings()``, the catalog's rating sort and its
+    star filter all forget the review.
+    """
+    gadget, rival = shelf(category, "Gadget", "Rival")
+    make_review(shopper("dcole", "Dana", "Cole"), gadget, rating=10)
+    removed = make_review(
+        shopper("gfinch", "Gordon", "Finch"),
+        gadget,
+        rating=2,
+        comment="Taken down by the store.",
+    )
+    review_all(rival, 8)
+    assert names(catalog(client, sort="highest")) == ["Rival", "Gadget"]
+    client.force_login(staff_user)
+
+    answer = client.post(remove_url(removed)).content.decode()
+
+    assert re.search(r'id="reviews-summary"[^>]*hx-swap-oob="true"', answer)
+    assert re.search(r'id="details-rating"[^>]*hx-swap-oob="true"', answer)
+    assert "5.0 from 1 customer review" in answer
+    assert "5.0 · 1 customer review" in answer
+    assert f"review-{removed.pk}" not in answer
+
+    page = client.get(gadget.get_absolute_url()).content.decode()
+    listed = client.get(list_url(gadget)).content.decode()
+    for shown in (page, listed):
+        assert str(removed.pk) not in REVIEW_ID.findall(shown)
+        assert "Taken down by the store." not in shown
+    assert "5.0 from 1 customer review" in page
+
+    rated = Product.objects.with_ratings().get(pk=gadget.pk)
+    assert (rated.rating_count, rated.rating_average) == (1, 5.0)
+    assert names(catalog(client, sort="highest")) == ["Gadget", "Rival"]
+    assert names(catalog(client, sort="lowest")) == ["Rival", "Gadget"]
+    assert names(catalog(client, rating="5")) == ["Gadget"]
+    assert names(catalog(client, rating="1")) == []
+
+
+REMOVED_NOTICE = "Your review was removed by ThoughtTronix staff."
+TEXT_DELETED = "You've deleted its text."
+
+
+def test_a_removed_review_still_blocks_its_author(
+    client, customer, staff_user, product
+):
+    """The author sees the notice, never the form, before and after deleting its text.
+
+    Their delete blanks the headline and comment but keeps the row, which
+    still holds the one-review-per-product constraint, so a direct create
+    POST writes nothing either side of it.
+    """
+    buy(customer, product)
+    review = make_review(customer, product, comment="Words staff took down.")
+    review.headline = "A headline too"
+    review.save()
+    review.remove(staff_user)
+    client.force_login(customer)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+    assert REMOVED_NOTICE in page
+    assert TEXT_DELETED not in page
+    assert "Words staff took down." not in page
+    assert create_url(product) not in page
+    assert f'hx-get="{delete_url(review)}"' in page
+
+    blocked = client.post(create_url(product), VALID).content.decode()
+    assert REMOVED_NOTICE in blocked
+    assert Review.objects.filter(user=customer).count() == 1
+
+    answer = client.post(delete_url(review)).content.decode()
+
+    review.refresh_from_db()
+    assert (review.headline, review.comment) == ("", "")
+    assert review.removed_at is not None
+    assert REMOVED_NOTICE in answer
+    assert TEXT_DELETED in answer
+    assert delete_url(review) not in answer
+    assert create_url(product) not in answer
+
+    client.post(create_url(product), VALID)
+    assert list(Review.objects.filter(user=customer)) == [review]
+
+
+def test_staff_see_remove_on_other_peoples_reviews_and_customers_dont(
+    client, customer, staff_user, product
+):
+    theirs = make_review(shopper("dcole", "Dana", "Cole"), product)
+    buy(staff_user, product)
+    own = make_review(staff_user, product)
+
+    client.force_login(staff_user)
+    as_staff = client.get(product.get_absolute_url()).content.decode()
+    client.force_login(customer)
+    as_customer = client.get(product.get_absolute_url()).content.decode()
+
+    assert f'hx-get="{remove_url(theirs)}"' in as_staff
+    assert f'id="review-row-{theirs.pk}"' in as_staff
+    assert remove_url(own) not in as_staff
+    assert remove_url(theirs) not in as_customer
+
+
+def test_the_remove_confirmation_swaps_the_row_away_or_cancels(
+    client, customer, staff_user, product
+):
+    """Remove targets the review's whole row; Cancel fetches the review back unchanged."""
+    review = make_review(customer, product, comment="Still here after Cancel.")
+    client.force_login(staff_user)
+
+    confirm = client.get(remove_url(review)).content.decode()
+
+    assert "<html" not in confirm
+    assert confirm.strip().startswith(f'<div id="review-{review.pk}"')
+    assert f'hx-post="{remove_url(review)}"' in confirm
+    assert f'hx-target="#review-row-{review.pk}"' in confirm
+    assert f'hx-get="{detail_url(review)}"' in confirm
+
+    cancelled = client.get(detail_url(review)).content.decode()
+
+    assert cancelled.strip().startswith(f'<article id="review-{review.pk}"')
+    assert "Still here after Cancel." in cancelled
+    review.refresh_from_db()
+    assert (review.removed_at, review.removed_by) == (None, None)
+
+
+def test_a_removed_review_is_out_of_staff_reach_on_the_product_page(
+    client, customer, staff_user, product
+):
+    """Once removed, staff can't fetch, remove, edit or delete it from here."""
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    client.force_login(staff_user)
+
+    for url in (
+        detail_url(review),
+        remove_url(review),
+        moderate_url(review),
+        delete_url(review),
+    ):
+        assert client.get(url).status_code == HTTPStatus.NOT_FOUND, url
+    assert client.post(remove_url(review)).status_code == HTTPStatus.NOT_FOUND
+
+
+def test_visitors_are_sent_to_sign_in_from_remove(client, customer, product):
+    review = make_review(customer, product)
+
+    response = client.post(remove_url(review))
+
+    assert response.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in response.url
+    review.refresh_from_db()
+    assert review.removed_at is None
+
+
+def test_deleting_a_removed_reviews_text_asks_first(
+    client, customer, staff_user, product
+):
+    """The confirmation names the text, changes nothing, and Keep it brings back the notice."""
+    review = make_review(customer, product, comment="Words staff took down.")
+    review.remove(staff_user)
+    client.force_login(customer)
+
+    confirm = client.get(delete_url(review)).content.decode()
+
+    assert "Delete your review's text? This can't be undone." in confirm
+    assert "Words staff took down." not in confirm
+    assert f'hx-post="{delete_url(review)}"' in confirm
+    assert f'hx-get="{detail_url(review)}"' in confirm
+    review.refresh_from_db()
+    assert review.comment == "Words staff took down."
+
+
+def test_another_customer_cannot_delete_a_removed_reviews_text(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, comment="Words staff took down.")
+    review.remove(staff_user)
+    client.force_login(shopper("dcole", "Dana", "Cole"))
+
+    assert client.post(delete_url(review)).status_code == HTTPStatus.NOT_FOUND
+    review.refresh_from_db()
+    assert review.comment == "Words staff took down."
+
+
+def test_the_seed_has_one_removed_review_and_its_author_sees_the_notice(client):
+    call_command("seed", stdout=io.StringIO())
+
+    removed = Review.objects.get(removed_at__isnull=False)
+    assert removed.removed_by.username == "employee"
+    assert removed.removed_at > removed.created_at
+    assert not removed.by_staff
+
+    visitor = client.get(removed.product.get_absolute_url()).content.decode()
+    assert removed.comment not in visitor
+    assert str(removed.pk) not in REVIEW_ID.findall(visitor)
+
+    client.force_login(removed.user)
+    page = client.get(removed.product.get_absolute_url()).content.decode()
+    assert REMOVED_NOTICE in page
+    assert removed.comment not in page

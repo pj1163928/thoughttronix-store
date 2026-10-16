@@ -216,6 +216,27 @@ class Review(models.Model):
                 {"comment": f"Keep it to 2,000 characters (this has {length:,})."}
             )
 
+    def remove(self, staff):
+        """Take this review down: hidden everywhere and out of every number.
+
+        The row stays, so it still holds the one-review-per-product
+        constraint and its author can't simply post it again.
+        """
+        self.removed_at = timezone.now()
+        self.removed_by = staff
+        self.save(update_fields=["removed_at", "removed_by", "updated_at"])
+
+    def delete_text(self):
+        """The author's delete of a removed review: blank its words, keep the row.
+
+        The row must stay, or its author could post the removed review
+        again. Saved without ``full_clean``: the comment-length rule is for
+        live reviews only.
+        """
+        self.headline = ""
+        self.comment = ""
+        self.save(update_fields=["headline", "comment", "updated_at"])
+
     @property
     def author_name(self):
         """How the public page names the author: "Dana C.".
