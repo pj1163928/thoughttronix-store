@@ -240,6 +240,21 @@ class Review(models.Model):
         return avatar_picture(self.user, f"Profile picture of {self.author_name}")
 
     @property
+    def edit_label(self):
+        """How the public page says the text has changed since it was posted.
+
+        "Edited by ThoughtTronix staff" once staff have corrected it, which
+        wins over the author's own "Edited" when both apply; blank if
+        neither has. Never the staff member's name: the public page keeps
+        them anonymous.
+        """
+        if self.moderated_at:
+            return "Edited by ThoughtTronix staff"
+        if self.edited_at:
+            return "Edited"
+        return ""
+
+    @property
     def stars(self):
         """The rating in stars, 1.0 to 5.0."""
         return self.rating / 2

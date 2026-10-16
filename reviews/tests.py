@@ -1688,3 +1688,245 @@ def test_rendering_the_catalog_adds_no_query_per_card(client, category):
 
     assert len(response.context["products"]) == 8
     assert len(eight_cards) == len(one_card)
+
+
+# --- Staff edit (HTMX) ------------------------------------------------------------
+
+
+def moderate_url(review):
+    return reverse("reviews:moderate", kwargs={"pk": review.pk})
+
+
+STAFF_FIX = {"headline": "Tidied up", "comment": "Corrected by the store."}
+
+
+def test_only_staff_moderate_and_only_other_peoples_reviews(
+    client, customer, staff_user, product
+):
+    """Staff edit someone else's review here; everyone else, and their own, is a 404.
+
+    Another customer is outside the one permission rule. An author, staff
+    or not, edits their own review as its author, so the moderate
+    endpoints never touch it.
+    """
+    customers = make_review(customer, product, comment="The customer's words.")
+    staffs = make_review(staff_user, product, comment="The employee's words.")
+    dana = shopper("dcole", "Dana", "Cole")
+
+    refused = [
+        (dana, customers),
+        (customer, customers),
+        (staff_user, staffs),
+    ]
+    for user, review in refused:
+        client.force_login(user)
+        shown = client.get(moderate_url(review))
+        saved = client.post(moderate_url(review), STAFF_FIX)
+        assert (shown.status_code, saved.status_code) == (
+            HTTPStatus.NOT_FOUND,
+            HTTPStatus.NOT_FOUND,
+        ), (user.username, review.comment)
+
+    for review, comment in [
+        (customers, "The customer's words."),
+        (staffs, "The employee's words."),
+    ]:
+        review.refresh_from_db()
+        assert (review.comment, review.moderated_at) == (comment, None)
+
+    client.force_login(staff_user)
+    assert client.get(moderate_url(customers)).status_code == HTTPStatus.OK
+
+
+def test_a_staff_save_corrects_the_text_and_never_the_rating(
+    client, customer, staff_user, product
+):
+    """Headline and comment change; a POSTed rating is ignored; it's moderation, not an edit."""
+    review = make_review(customer, product, rating=8, comment="Something abusive here.")
+    client.force_login(staff_user)
+
+    client.post(moderate_url(review), {**STAFF_FIX, "rating": "2"})
+
+    review.refresh_from_db()
+    assert (review.rating, review.headline, review.comment) == (
+        8,
+        "Tidied up",
+        "Corrected by the store.",
+    )
+    assert review.moderated_at is not None
+    assert review.moderated_by == staff_user
+    assert review.edited_at is None
+
+
+EDITED_LABEL = re.compile(r"·\s*Edited\b(?! by)")
+
+
+def test_the_staff_label_wins_and_never_names_the_staff_member(client, product):
+    """Edited by its author and then by staff: shoppers see only the staff label."""
+    moderator = get_user_model().objects.create_user(
+        username="qmoderator", first_name="Quinn", last_name="Ashby", is_staff=True
+    )
+    review = make_review(shopper("dcole", "Dana", "Cole"), product)
+    review.edited_at = timezone.now()
+    review.moderated_at = timezone.now()
+    review.moderated_by = moderator
+    review.save()
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert "· Edited by ThoughtTronix staff" in page
+    assert not EDITED_LABEL.search(page)
+    for name in ("qmoderator", "Quinn", "Ashby"):
+        assert name not in page
+
+
+def test_staff_see_edit_on_other_peoples_reviews_and_customers_dont(
+    client, customer, staff_user, product
+):
+    theirs = make_review(shopper("dcole", "Dana", "Cole"), product)
+    buy(staff_user, product)
+    own = make_review(staff_user, product)
+
+    client.force_login(staff_user)
+    as_staff = client.get(product.get_absolute_url()).content.decode()
+    client.force_login(customer)
+    as_customer = client.get(product.get_absolute_url()).content.decode()
+
+    assert moderate_url(theirs) in as_staff
+    assert moderate_url(own) not in as_staff
+    assert edit_url(own) in as_staff
+    assert moderate_url(theirs) not in as_customer
+
+
+def test_the_staff_form_has_no_rating_and_changes_nothing(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, rating=7, comment="As first written.")
+    client.force_login(staff_user)
+
+    response = client.get(moderate_url(review))
+
+    page = response.content.decode()
+    assert "<html" not in page
+    assert f'<form id="review-{review.pk}"' in page
+    assert f'hx-post="{moderate_url(review)}"' in page
+    assert f'hx-get="{detail_url(review)}"' in page
+    assert 'name="rating"' not in page
+    assert 'name="headline"' in page
+    assert "As first written." in page
+    assert "3½ stars" in page
+    review.refresh_from_db()
+    assert (review.comment, review.moderated_at) == ("As first written.", None)
+
+
+def test_staff_cancel_returns_the_review_as_it_was(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, comment="Untouched by Cancel.")
+    client.force_login(staff_user)
+    client.get(moderate_url(review))
+
+    page = client.get(detail_url(review)).content.decode()
+
+    assert page.strip().startswith(f'<article id="review-{review.pk}"')
+    assert "Untouched by Cancel." in page
+    assert "Edited" not in page
+    assert f'hx-get="{moderate_url(review)}"' in page
+
+
+def test_a_staff_save_answers_with_the_labelled_review(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, comment="Something abusive here.")
+    client.force_login(staff_user)
+
+    response = client.post(moderate_url(review), STAFF_FIX)
+
+    page = response.content.decode()
+    assert page.strip().startswith(f'<article id="review-{review.pk}"')
+    assert "Corrected by the store." in page
+    assert "· Edited by ThoughtTronix staff" in page
+    assert "hx-swap-oob" not in page
+    assert "employee" not in page
+
+
+def test_a_staff_save_without_a_change_isnt_moderation(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, comment="Nothing to fix here.")
+    client.force_login(staff_user)
+
+    client.post(
+        moderate_url(review), {"headline": "", "comment": "Nothing to fix here."}
+    )
+
+    review.refresh_from_db()
+    assert (review.moderated_at, review.moderated_by) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"headline": "h" * 101}, "Ensure this value has at most 100 characters"),
+        ({"comment": "   too short   "}, "Write at least 10 characters."),
+        ({"comment": "x" * 2001}, "Keep it to 2,000 characters (this has 2,001)."),
+    ],
+)
+def test_an_invalid_staff_edit_re_renders_the_form_and_saves_nothing(
+    client, customer, staff_user, product, changes, message
+):
+    review = make_review(customer, product, comment="Still the original.")
+    client.force_login(staff_user)
+
+    response = client.post(moderate_url(review), {**STAFF_FIX, **changes})
+
+    page = response.content.decode()
+    assert response.status_code == HTTPStatus.OK
+    assert f'<form id="review-{review.pk}"' in page
+    assert f'hx-post="{moderate_url(review)}"' in page
+    assert page.count(message) == 1
+    review.refresh_from_db()
+    assert (review.comment, review.moderated_at) == ("Still the original.", None)
+
+
+def test_staff_cannot_moderate_a_removed_review(client, customer, staff_user, product):
+    review = make_review(customer, product)
+    review.removed_at = timezone.now()
+    review.save()
+    client.force_login(staff_user)
+
+    assert client.get(moderate_url(review)).status_code == HTTPStatus.NOT_FOUND
+
+
+def test_visitors_are_sent_to_sign_in_from_moderate(client, customer, product):
+    review = make_review(customer, product)
+
+    response = client.post(moderate_url(review), STAFF_FIX)
+
+    assert response.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in response.url
+    review.refresh_from_db()
+    assert review.moderated_at is None
+
+
+def test_moderated_wins_over_edited_in_the_label(customer, product):
+    review = make_review(customer, product)
+    assert review.edit_label == ""
+
+    review.edited_at = timezone.now()
+    assert review.edit_label == "Edited"
+
+    review.moderated_at = timezone.now()
+    assert review.edit_label == "Edited by ThoughtTronix staff"
+
+
+def test_the_seed_has_one_review_edited_by_staff(client):
+    call_command("seed", stdout=io.StringIO())
+
+    moderated = Review.objects.get(moderated_at__isnull=False)
+    page = client.get(moderated.product.get_absolute_url()).content.decode()
+
+    assert moderated.moderated_by.username == "employee"
+    assert moderated.moderated_at > moderated.created_at
+    assert "4417" not in moderated.comment
+    assert "· Edited by ThoughtTronix staff" in page

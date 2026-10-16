@@ -15,12 +15,13 @@ from django.views import View
 
 from products.models import Product
 
-from .forms import ReviewForm
+from .forms import ModerationForm, ReviewForm
 from .models import DEFAULT_SORT, SORTS, Review
 
 SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
 REVIEW_TEMPLATE = "reviews/partials/_review.html"
 FORM_TEMPLATE = "reviews/partials/_review_form.html"
+MODERATE_FORM_TEMPLATE = "reviews/partials/_review_moderate_form.html"
 CONFIRM_DELETE_TEMPLATE = "reviews/partials/_review_delete_confirm.html"
 PAGE_TEMPLATE = "reviews/partials/_review_page.html"
 REVIEWS_PER_PAGE = 10
@@ -134,10 +135,13 @@ class ReviewActionMixin(LoginRequiredMixin):
     gets a 404, as for another customer's wishlist line. ``author_only``
     views narrow that to the author: a staff member's change to someone
     else's review goes through the staff endpoints, which can't touch
-    the rating.
+    the rating. ``staff_only`` views narrow it the other way, to staff
+    acting on someone else's review: an author, staff or not, changes
+    their own review as its author.
     """
 
     author_only = False
+    staff_only = False
 
     def get_review(self):
         reviews = Review.objects.changeable_by(self.request.user).live()
@@ -146,6 +150,10 @@ class ReviewActionMixin(LoginRequiredMixin):
         )
         if self.author_only and review.user_id != self.request.user.pk:
             raise Http404("Only the author edits their review here.")
+        if self.staff_only and (
+            not self.request.user.is_staff or review.user_id == self.request.user.pk
+        ):
+            raise Http404("Staff moderate other people's reviews here.")
         return review
 
 
@@ -217,3 +225,38 @@ class DeleteReviewView(ReviewActionMixin, View):
         return render(
             request, SLOT_UPDATE_TEMPLATE, section_context(request.user, product)
         )
+
+
+class ModerateReviewView(ReviewActionMixin, View):
+    """HTMX: a staff member's edit of someone else's review — headline and comment.
+
+    The GET swaps the staff form over the review in the list and changes
+    nothing; its Cancel fetches the review back through ``reviews:detail``.
+    A valid POST saves, marks the review "Edited by ThoughtTronix staff"
+    if anything changed, and answers with the review; an invalid one
+    answers with the form and its errors. The rating can't change, so
+    neither can any average, and nothing is swapped out of band.
+    """
+
+    staff_only = True
+
+    def get(self, request, pk):
+        review = self.get_review()
+        return render(
+            request,
+            MODERATE_FORM_TEMPLATE,
+            {"review": review, "form": ModerationForm(instance=review)},
+        )
+
+    def post(self, request, pk):
+        review = self.get_review()
+        form = ModerationForm(request.POST, instance=review)
+        if not form.is_valid():
+            return render(
+                request, MODERATE_FORM_TEMPLATE, {"review": review, "form": form}
+            )
+        if form.has_changed():
+            form.instance.moderated_at = timezone.now()
+            form.instance.moderated_by = request.user
+        form.save()
+        return render(request, REVIEW_TEMPLATE, {"review": review})

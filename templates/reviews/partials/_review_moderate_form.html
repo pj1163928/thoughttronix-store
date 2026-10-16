@@ -1,0 +1,34 @@
+{# The staff form swapped over someone else's review by its Edit: headline and comment #}
+{# only. The rating is the customer's and is shown, not offered. It takes the review's #}
+{# id, so Cancel can swap the review back over it and a save can swap in the result: #}
+{# the review, or this form again with its errors. #}
+<form id="review-{{ review.pk }}"
+      hx-post="{% url 'reviews:moderate' review.pk %}"
+      hx-target="#review-{{ review.pk }}"
+      hx-swap="outerHTML"
+      class="space-y-4 rounded-box border border-info/40 bg-base-100 p-4">
+  <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <span class="font-semibold">Editing {{ review.author_name }}'s review</span>
+    <span class="inline-flex items-center gap-2">
+      {% include "reviews/partials/_stars.html" with rating=review.rating label=review.get_rating_display only %}
+      <span class="text-sm font-semibold" aria-hidden="true">{{ review.stars|floatformat:1 }}</span>
+    </span>
+  </div>
+  <p class="text-sm opacity-70">The rating is the customer's and can't be changed. Your edit is shown as "Edited by ThoughtTronix staff".</p>
+
+  {% include "products/partials/_field.html" with field=form.headline %}
+  {% include "products/partials/_field.html" with field=form.comment %}
+
+  {% for error in form.non_field_errors %}
+    <p class="text-sm text-error">{{ error }}</p>
+  {% endfor %}
+
+  <div class="flex flex-wrap gap-2">
+    <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+    {# Puts the review back as it was; the GET changes nothing. #}
+    <button type="button" class="btn btn-ghost btn-sm"
+            hx-get="{% url 'reviews:detail' review.pk %}"
+            hx-target="#review-{{ review.pk }}"
+            hx-swap="outerHTML">Cancel</button>
+  </div>
+</form>

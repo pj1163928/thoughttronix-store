@@ -30,6 +30,86 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 7/12, Staff edit on the product page
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 7`.
+2. "Go ahead and begin the phases"
+3. "Move to next phase"
+4. "SOunds good move to next"
+5. "Move to next"
+6. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - Staff viewing a product page see Edit on every other review in the
+    list. It swaps in a staff form with headline and comment only. The
+    customer's stars are shown read-only, with a note that the rating
+    can't be changed. Cancel swaps the review back.
+  - Saving sets `moderated_at` and `moderated_by` (only if something
+    changed) and swaps the review back in, labelled "· Edited by
+    ThoughtTronix staff". Invalid input re-renders the staff form in
+    place with its errors. The rating can't change, so nothing is
+    swapped out of band.
+  - The staff label wins over "Edited", and the public page never names
+    the staff member.
+  - The seed's Whisper Alarm Clock review by June Bishop is first written
+    with her bank PIN, then corrected by `employee` a day later.
+
+  15 new tests (counting parametrized cases); the full suite has 1,212,
+  all passing. `ruff check` and `ruff format` are clean. No migrations.
+- **Changes:**
+  - `reviews/forms.py` — `ModerationForm`: headline and comment only, so
+    a POSTed rating never reaches the model.
+  - `reviews/models.py` — `Review.edit_label`: the staff label, else
+    "Edited", else blank.
+  - `reviews/views.py` — `ModerateReviewView` (GET form, POST save), and
+    a `staff_only` flag on `ReviewActionMixin`: staff, on someone else's
+    review, or a 404.
+  - `reviews/urls.py` — `reviews:moderate` at `/reviews/<pk>/moderate/`.
+  - `templates/reviews/partials/_review_moderate_form.html` — new: the
+    staff form, taking the review's id so Cancel and Save swap over it.
+  - `templates/reviews/partials/_review.html` — staff Edit on other
+    people's reviews; the label now reads `edit_label`.
+  - `products/management/commands/seed.py` — June's original comment
+    carries a PIN; `STAFF_EDIT` and `_apply_staff_edit()` take it out as
+    `employee`, refusing a non-staff editor or the author.
+  - `reviews/tests.py` — the TDD tests, plus tests for: staff seeing Edit
+    and customers not; the form having no rating field and changing
+    nothing; Cancel; the save's response; a no-change save; invalid
+    input; removed reviews; visitors; `edit_label`; and the seed.
+  - `plans/product-reviews.md` — Phase 7's criteria ticked.
+- **TDD:** three behaviors, with approval at each step.
+  1. Who can moderate. Red: a non-staff author got 200 on their own
+     review. Green with `staff_only` on `ReviewActionMixin`.
+  2. A staff save corrects text, never the rating. Red on `moderated_at`
+     being `None` (the rating was already safe, as the form has no such
+     field). Green by stamping `moderated_at`/`moderated_by`.
+  3. The staff label wins and never names the moderator. Red on the
+     missing label. Green with `Review.edit_label`.
+- **Decisions:**
+  - An author, staff or not, gets a 404 on `moderate` for their own
+    review; own reviews always go through author edit, as Phase 10
+    expects. The `is_staff` check is written out, though `changeable_by`
+    already implies it.
+  - A staff save with no change isn't moderation, matching author edit.
+  - The staff save answers with the review alone, no out-of-band
+    averages, since the counted set's numbers can't change.
+  - The staff form shows the customer's rating read-only for context.
+  - The seed's moderator is `employee`, who can be signed in as.
+- **Deviations:**
+  - "Move to next phase" and its variants were taken as approval of the
+    current TDD step, not as a jump to Phase 8.
+- **Sideways:**
+  - The first draft of the staff-sees-Edit test held a muddled, always-
+    true assertion. It was caught on reread and removed before running.
+  - Running `seed` twice, to check idempotence, modified `db.sqlite3`.
+    It was left out of the commit unless the user asks for it.
+
+---
+
 ## 2026-10-15 — Product Reviews: Phase 6/12, Catalog ratings
 
 ### Prompts

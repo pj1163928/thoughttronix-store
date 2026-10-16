@@ -827,9 +827,10 @@ REVIEWS = {
             "jbishop",
             6,
             "Gentle, but knows too much",
+            # As June first wrote it; STAFF_EDIT takes the PIN back out.
             "It really does wake you gently. Then it gently reads back what "
             "you said in your sleep, which this morning included my bank "
-            "PIN. Three stars.",
+            "PIN: 4417. Three stars.",
             16,
         ),
     ],
@@ -845,6 +846,20 @@ REVIEWS = {
         ),
     ],
 }
+
+# The one review staff corrected after it was posted, so "Edited by
+# ThoughtTronix staff" can be demoed: (product slug, author, staff
+# username, corrected comment, days ago). Only the comment changes; the
+# rating is the customer's and staff can't touch it.
+STAFF_EDIT = (
+    "whisper-alarm-clock",
+    "jbishop",
+    "employee",
+    "It really does wake you gently. Then it gently reads back what you "
+    "said in your sleep, which this morning included my bank PIN. "
+    "[PIN removed by ThoughtTronix staff.] Three stars.",
+    15,
+)
 
 # How long before their first review a background reviewer's order was placed.
 REVIEWED_AFTER_DAYS = 10
@@ -1258,6 +1273,21 @@ class Command(BaseCommand):
                 )
                 review.full_clean()
                 review.save()
+        self._apply_staff_edit(now)
+
+    def _apply_staff_edit(self, now):
+        """STAFF_EDIT, made as a staff member's edit on the site would make it."""
+        slug, author, editor, comment, days_ago = STAFF_EDIT
+        User = get_user_model()
+        review = Review.objects.get(product__slug=slug, user__username=author)
+        staff = User.objects.get(username=editor)
+        if not staff.is_staff or staff == review.user:
+            raise CommandError(f"{editor} can't moderate {author}'s review.")
+        review.comment = comment
+        review.moderated_at = now - timedelta(days=days_ago)
+        review.moderated_by = staff
+        review.full_clean()
+        review.save()
 
     def _build_order(self, *, user, created_at, status, lines, rng):
         """One order with denormalized addresses, prices and image snapshots.

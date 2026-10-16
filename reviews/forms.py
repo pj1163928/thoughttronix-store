@@ -1,4 +1,4 @@
-"""The customer's review form.
+"""The review forms: the author's, and the staff member's moderation form.
 
 The comment's length rule lives on ``Review.clean`` — it applies to live
 reviews only — and reaches this form through ``full_clean``, so each
@@ -50,3 +50,17 @@ class ReviewForm(StyledModelForm):
     def rating_chosen(self):
         """Whether any rating is checked; if not, the hidden "no rating" radio is."""
         return any(option["checked"] for option in self.rating_options())
+
+
+class ModerationForm(StyledModelForm):
+    """Headline and comment only — what staff may correct in someone else's review.
+
+    No rating field: staff remove abuse without changing what the customer
+    thought of the product, so a POSTed rating never reaches the model.
+    """
+
+    class Meta:
+        model = Review
+        fields = ["headline", "comment"]
+        labels = {"headline": "Headline (optional)", "comment": "Review"}
+        widgets = {"comment": forms.Textarea(attrs={"rows": 5})}

@@ -303,13 +303,13 @@ the staff member. The seed gains one review edited by staff.
 
 ### Acceptance criteria
 
-- [ ] Staff see Edit on other people's reviews; customers don't.
-- [ ] The staff form has no rating field, and a POSTed rating is ignored.
-- [ ] Saving sets `moderated_at` and `moderated_by`, and the review shows
+- [x] Staff see Edit on other people's reviews; customers don't.
+- [x] The staff form has no rating field, and a POSTed rating is ignored.
+- [x] Saving sets `moderated_at` and `moderated_by`, and the review shows
       the staff label without the staff member's name.
-- [ ] A review with both labels shows only the staff one.
-- [ ] A non-staff, non-author user gets a 404 on the moderate endpoints.
-- [ ] After `seed`, one review carries the staff label.
+- [x] A review with both labels shows only the staff one.
+- [x] A non-staff, non-author user gets a 404 on the moderate endpoints.
+- [x] After `seed`, one review carries the staff label.
 
 ---
 
