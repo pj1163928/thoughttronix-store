@@ -1,0 +1,16 @@
+{# One page of everyone else's reviews (reviews.views.list_context), then Show more if any #}
+{# remain. Rendered into #review-list on page load and by a sort change, and in place of #}
+{# the button it follows by Show more, whose URL carries the current sort. #}
+{% for review in page.object_list %}
+  <div class="py-6">
+    {% include "reviews/partials/_review.html" %}
+  </div>
+{% endfor %}
+{% if page.has_next %}
+  <div id="show-more-reviews" class="py-6 text-center">
+    <button type="button" class="btn btn-outline"
+            hx-get="{% url 'reviews:list' product.pk %}?sort={{ sort }}&amp;page={{ page.next_page_number }}"
+            hx-target="#show-more-reviews"
+            hx-swap="outerHTML">Show more reviews</button>
+  </div>
+{% endif %}

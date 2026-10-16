@@ -6,6 +6,7 @@ product page's ``reviews_section`` tag.
 """
 
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import InvalidPage, Paginator
 from django.db import IntegrityError, transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
@@ -15,12 +16,14 @@ from django.views import View
 from products.models import Product
 
 from .forms import ReviewForm
-from .models import Review
+from .models import DEFAULT_SORT, SORTS, Review
 
 SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
 REVIEW_TEMPLATE = "reviews/partials/_review.html"
 FORM_TEMPLATE = "reviews/partials/_review_form.html"
 CONFIRM_DELETE_TEMPLATE = "reviews/partials/_review_delete_confirm.html"
+PAGE_TEMPLATE = "reviews/partials/_review_page.html"
+REVIEWS_PER_PAGE = 10
 
 
 def slot_context(user, product, form=None):
@@ -42,16 +45,14 @@ def slot_context(user, product, form=None):
 
 
 def section_context(user, product, form=None):
-    """The whole Reviews section for ``user``: the slot, the summary and the list.
+    """The slot and the summary: everything a change to ``user``'s review re-renders.
 
-    ``others`` is lazy, so a response that only re-renders the slot and
-    the summaries never queries it.
+    The list below them comes from ``list_context``, which only the page
+    load and ``reviews:list`` need.
     """
-    reviews = Review.objects.filter(product=product)
     return {
         **slot_context(user, product, form),
-        "summary": reviews.rating_summary(),
-        "others": reviews.listed_for(user),
+        "summary": Review.objects.filter(product=product).rating_summary(),
     }
 
 
@@ -86,6 +87,44 @@ class CreateReviewView(LoginRequiredMixin, View):
             SLOT_UPDATE_TEMPLATE,
             section_context(request.user, product, form),
         )
+
+
+def list_context(user, product, sort=DEFAULT_SORT, page=1):
+    """One page of everyone else's reviews of ``product``, as ``user`` sees them.
+
+    ``REVIEWS_PER_PAGE`` at a time in ``sort`` (unknown sorts are Newest),
+    never ``user``'s own review or a removed one. A page number past the
+    end, or not a number, is a 404, as for Django's ``ListView``: Show more
+    must never hand back a page it has already shown.
+    """
+    if sort not in SORTS:
+        sort = DEFAULT_SORT
+    reviews = Review.objects.filter(product=product).listed_for(user).sorted_by(sort)
+    try:
+        page = Paginator(reviews, REVIEWS_PER_PAGE).page(page)
+    except InvalidPage as error:
+        raise Http404("No such page of reviews.") from error
+    return {"product": product, "page": page, "sort": sort, "sorts": SORTS}
+
+
+class ReviewListView(View):
+    """HTMX: a page of everyone else's reviews of a product, in the chosen sort.
+
+    Open to visitors, as the product page is. The sort menu asks for page
+    one and replaces the list; Show more asks for the next page in the
+    same sort and replaces its own button. Both get the same partial: the
+    page's reviews, then a fresh button if any remain.
+    """
+
+    def get(self, request, pk):
+        product = get_object_or_404(Product, pk=pk)
+        context = list_context(
+            request.user,
+            product,
+            request.GET.get("sort", DEFAULT_SORT),
+            request.GET.get("page", 1),
+        )
+        return render(request, PAGE_TEMPLATE, context)
 
 
 class ReviewActionMixin(LoginRequiredMixin):

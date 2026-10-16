@@ -1,0 +1,12 @@
+{# The list's sort menu. A change asks reviews:list for page one in the new sort and #}
+{# replaces the list with it; the menu itself stays put, keeping its choice and focus. #}
+<div class="flex items-center justify-end gap-2">
+  <label for="review-sort" class="text-sm opacity-70">Sort by</label>
+  <select id="review-sort" name="sort" class="select select-sm w-auto"
+          hx-get="{% url 'reviews:list' product.pk %}"
+          hx-target="#review-list">
+    {% for value, option in sorts.items %}
+      <option value="{{ value }}" {% if value == sort %}selected{% endif %}>{{ option.label }}</option>
+    {% endfor %}
+  </select>
+</div>

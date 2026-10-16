@@ -1,9 +1,13 @@
 """Reviews: eligibility, the model's rules, the "Your review" slot and create."""
 
+import html
 import io
+import re
+from datetime import timedelta
 from decimal import Decimal
 from http import HTTPStatus
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 from django.conf import settings
@@ -1087,6 +1091,151 @@ def test_only_the_author_sees_delete_on_the_product_page(client, customer, produ
     assert delete_url(theirs) not in page
 
 
+# --- Show more and sort ---------------------------------------------------------
+
+
+def dated_review(username, product, *, rating, days_ago):
+    """Another shopper's review of ``product``, written ``days_ago`` days ago."""
+    review = make_review(shopper(username), product, rating=rating)
+    review.created_at = timezone.now() - timedelta(days=days_ago)
+    review.save()
+    return review
+
+
+@pytest.mark.parametrize(
+    ("sort", "expected"),
+    [
+        ("newest", ["dee", "cal", "bea", "ada"]),
+        ("highest", ["bea", "cal", "ada", "dee"]),
+        ("lowest", ["dee", "cal", "ada", "bea"]),
+        ("nonsense", ["dee", "cal", "bea", "ada"]),
+    ],
+)
+def test_each_sort_orders_equal_ratings_newest_first(product, sort, expected):
+    """Cal is written before Ada but dated after her, so the tie-break is the date."""
+    dated_review("cal", product, rating=8, days_ago=2)
+    dated_review("ada", product, rating=8, days_ago=4)
+    dated_review("bea", product, rating=10, days_ago=3)
+    dated_review("dee", product, rating=4, days_ago=1)
+
+    reviews = Review.objects.filter(product=product).sorted_by(sort)
+
+    assert [review.user.username for review in reviews] == expected
+
+
+def list_url(product, **params):
+    return f"{reverse('reviews:list', args=[product.pk])}?{urlencode(params)}"
+
+
+REVIEW_ID = re.compile(r'<article id="review-(\d+)"')
+SHOW_MORE = re.compile(r'id="show-more-reviews".*?hx-get="([^"]+)"', re.DOTALL)
+
+
+def test_show_more_serves_ten_at_a_time_in_the_current_sort(client, product):
+    """Following each page's own button walks the whole list once, in order."""
+    for number in range(23):
+        dated_review(
+            f"shopper{number}", product, rating=2 + number % 9, days_ago=number
+        )
+    expected = list(Review.objects.sorted_by("highest").values_list("pk", flat=True))
+
+    shown, page_sizes = [], []
+    url = list_url(product, sort="highest")
+    while url and len(page_sizes) < 5:
+        page = client.get(url).content.decode()
+        ids = [int(pk) for pk in REVIEW_ID.findall(page)]
+        page_sizes.append(len(ids))
+        shown += ids
+        more = SHOW_MORE.search(page)
+        url = html.unescape(more.group(1)) if more else None
+
+    assert page_sizes == [10, 10, 3]
+    assert shown == expected
+
+
+@pytest.mark.parametrize("sort", ["newest", "highest", "lowest"])
+def test_the_list_never_includes_the_viewers_own_or_a_removed_review(
+    client, customer, product, sort
+):
+    """Their own review is in the slot; a removed one is hidden from everyone."""
+    make_review(customer, product, rating=10)
+    removed = dated_review("gfinch", product, rating=2, days_ago=0)
+    removed.removed_at = timezone.now()
+    removed.save()
+    theirs = dated_review("dcole", product, rating=6, days_ago=3)
+    client.force_login(customer)
+
+    page = client.get(list_url(product, sort=sort)).content.decode()
+
+    assert [int(pk) for pk in REVIEW_ID.findall(page)] == [theirs.pk]
+
+
+@pytest.mark.parametrize(("count", "shown", "more"), [(10, 10, False), (11, 10, True)])
+def test_the_product_page_shows_ten_reviews_then_show_more(
+    client, product, count, shown, more
+):
+    for number in range(count):
+        dated_review(f"shopper{number}", product, rating=8, days_ago=number)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert len(REVIEW_ID.findall(page)) == shown
+    assert ("Show more reviews" in page) is more
+    if more:
+        assert html.escape(list_url(product, sort="newest", page=2)) in page
+
+
+def test_the_sort_menu_offers_three_sorts_once_there_are_two_reviews(client, product):
+    dated_review("dcole", product, rating=8, days_ago=1)
+    alone = client.get(product.get_absolute_url()).content.decode()
+    dated_review("gfinch", product, rating=8, days_ago=2)
+
+    page = client.get(product.get_absolute_url()).content.decode()
+
+    assert 'id="review-sort"' not in alone
+    assert 'id="review-sort"' in page
+    assert f'hx-get="{reverse("reviews:list", args=[product.pk])}"' in page
+    for value, label in [
+        ("newest", "Newest"),
+        ("highest", "Highest rated"),
+        ("lowest", "Lowest rated"),
+    ]:
+        assert f'value="{value}"' in page
+        assert label in page
+    assert '<option value="newest" selected>' in page
+
+
+@pytest.mark.parametrize("page", ["3", "0", "abc"])
+def test_a_page_that_isnt_there_is_a_404(client, product, page):
+    for number in range(11):
+        dated_review(f"shopper{number}", product, rating=8, days_ago=number)
+
+    response = client.get(list_url(product, page=page))
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_the_list_of_a_missing_product_is_a_404(client):
+    response = client.get(reverse("reviews:list", args=[999]))
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+def test_a_sort_change_answers_with_page_one_only(client, product):
+    """The partial alone, never the page: it replaces the list's contents."""
+    for number in range(12):
+        dated_review(
+            f"shopper{number}", product, rating=2 + number % 9, days_ago=number
+        )
+
+    page = client.get(list_url(product, sort="lowest")).content.decode()
+
+    assert len(REVIEW_ID.findall(page)) == 10
+    assert "<html" not in page
+    assert 'id="review-list"' not in page
+    assert "sort=lowest&amp;page=2" in page
+
+
 # --- The seed -------------------------------------------------------------------
 
 
@@ -1116,6 +1265,17 @@ def test_the_seeded_reviews_obey_the_features_own_rules(db):
     ratings = set(Review.objects.values_list("rating", flat=True))
     assert ratings == set(Review.Rating.values)
     assert Review.objects.filter(headline="").exists()
+
+
+def test_the_seeded_seraphine_needs_show_more(client):
+    call_command("seed", stdout=io.StringIO())
+    seraphine = Product.objects.get(slug="seraphine")
+
+    page = client.get(seraphine.get_absolute_url()).content.decode()
+
+    assert seraphine.reviews.live().count() > 10
+    assert len(REVIEW_ID.findall(page)) == 10
+    assert "Show more reviews" in page
 
 
 # --- The rating picker ----------------------------------------------------------

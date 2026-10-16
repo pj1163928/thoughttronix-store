@@ -239,12 +239,12 @@ reviews or the viewer's own.
 
 ### Acceptance criteria
 
-- [ ] A product with more than ten other reviews shows ten and a "Show
+- [x] A product with more than ten other reviews shows ten and a "Show
       more reviews" button; the last page has no button.
-- [ ] Each sort orders correctly, with equal ratings newest first.
-- [ ] Show more keeps the current sort.
-- [ ] The list endpoint excludes the viewer's own review.
-- [ ] The seeded product with more than ten reviews exercises Show more.
+- [x] Each sort orders correctly, with equal ratings newest first.
+- [x] Show more keeps the current sort.
+- [x] The list endpoint excludes the viewer's own review.
+- [x] The seeded product with more than ten reviews exercises Show more.
 
 ---
 

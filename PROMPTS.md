@@ -30,6 +30,89 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-15 — Product Reviews: Phase 5/12, Show more and sort
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 5`.
+2. "Continue the implementation"
+3. "move to the next"
+4. "Continue next step"
+5. "Approve move to next phase"
+6. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - The product page's list of other reviews shows ten at a time. "Show
+    more reviews" fetches the next ten in the current sort and replaces
+    its own button with them, plus a new button while any remain.
+  - A "Sort by" menu (Newest, Highest rated, Lowest rated) replaces the
+    list with page one of the new sort. Equal ratings read newest first.
+  - Both go through the new `reviews:list` endpoint, open to visitors,
+    which never includes the viewer's own review or a removed one.
+
+  17 new tests (counting parametrized cases); the full suite has 1,168,
+  all passing. `ruff check` and `ruff format` are clean. There are no
+  migrations and no seed changes: Seraphine's twelve seeded reviews
+  already need Show more.
+- **Changes:**
+  - `reviews/models.py` — `SORTS` (value → label and ordering, each
+    ending newest first) and `DEFAULT_SORT`; `ReviewQuerySet.sorted_by`.
+  - `reviews/views.py` — `list_context` (10 per page through Django's
+    `Paginator`; an unknown sort is Newest; a page past the end or not a
+    number is a 404) and `ReviewListView`. `section_context` drops its
+    `others` entry: slot updates never render the list.
+  - `reviews/urls.py` — `reviews:list` at `reviews/product/<pk>/`.
+  - `reviews/templatetags/reviews_extras.py` — `reviews_section` merges
+    in `list_context` for page one, Newest.
+  - `templates/reviews/partials/_review_page.html` — new: one page of
+    reviews plus the Show more button (`#show-more-reviews`, swapped
+    `outerHTML`).
+  - `templates/reviews/partials/_review_sort.html` — new: the sort
+    `<select>`, which swaps `#review-list`'s contents.
+  - `templates/reviews/partials/_reviews_section.html` — the menu (only
+    with two or more other reviews) and the list through the new partial.
+  - `reviews/tests.py` — the three TDD tests, plus tests for:
+    - ten on the product page, with Show more only past ten
+    - the sort menu's three options, and its absence with one review
+    - 404s for a missing page and a missing product
+    - a sort answering with the partial's page one only
+    - the seeded Seraphine needing Show more
+  - `plans/product-reviews.md` — Phase 5's criteria ticked.
+- **TDD:** three behaviors.
+  1. Each sort orders correctly, equal ratings newest first. Red on
+     Highest and Lowest against a stub `sorted_by`; green once `SORTS`
+     gave each ordering a newest-first tail. The test inserts one review
+     before another it's dated after, so a `-pk` tie-break would fail.
+  2. Show more serves ten at a time and keeps the sort. The test
+     follows each page's own button and expects pages of 10, 10 and 3,
+     in Highest rated order with no gaps or repeats. Red at 23 on one
+     page; green with the `Paginator` and the button.
+  3. The list never includes the viewer's own or a removed review. It
+     passed first time, because the endpoint reuses Phase 2's
+     `listed_for`. Swapping in `.live()` turned it red (`[1, 3] == [3]`);
+     it was kept, with approval, as a regression test.
+- **Decisions:**
+  - Sort and Show more share one partial: sort fills `#review-list`,
+    Show more replaces `#show-more-reviews`. The button's URL carries
+    the sort, so Show more needs no other state.
+  - A page past the end, or not a number, is a 404, as for `ListView`,
+    rather than clamping to the last page and repeating reviews.
+  - The endpoint serves any product, unavailable ones included, as the
+    product page does.
+  - The sort menu appears only with two or more other reviews.
+- **Deviations:** none. The brief and each TDD test were approved as
+  proposed. "Approve move to next phase" was read as finishing Phase 5;
+  Phase 6 was not started.
+- **Sideways:**
+  - Two new tests failed on the Show more URL's bare `&`. The template
+    now writes `&amp;`, which is correct inside an attribute.
+  - Ruff flagged an unused name in behaviour 3's test, left by deleting
+    a pointless assertion. The review is still created, just unnamed.
+
+---
+
 ## 2026-10-15 — Product Reviews: Phase 4/12, Author delete
 
 ### Prompts

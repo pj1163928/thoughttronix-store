@@ -1,7 +1,7 @@
 from django import template
 
 from reviews.models import Review
-from reviews.views import section_context
+from reviews.views import list_context, section_context
 
 register = template.Library()
 
@@ -16,6 +16,7 @@ def reviews_section(context, product):
     request = context["request"]
     return {
         **section_context(request.user, product),
+        **list_context(request.user, product),
         "user": request.user,
         "request": request,
     }

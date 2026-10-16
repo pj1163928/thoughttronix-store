@@ -7,12 +7,14 @@
   <div class="mt-6">
     {% include "reviews/partials/_your_review.html" %}
   </div>
-  {% if others %}<h3 class="sr-only">Other reviews</h3>{% endif %}
+  {% if page.object_list %}<h3 class="sr-only">Other reviews</h3>{% endif %}
+  {# Sorting a single review would change nothing. #}
+  {% if page.paginator.count > 1 %}
+    <div class="mt-6">
+      {% include "reviews/partials/_review_sort.html" %}
+    </div>
+  {% endif %}
   <div id="review-list" class="mt-4 divide-y divide-base-300">
-    {% for review in others %}
-      <div class="py-6">
-        {% include "reviews/partials/_review.html" %}
-      </div>
-    {% endfor %}
+    {% include "reviews/partials/_review_page.html" %}
   </div>
 </section>

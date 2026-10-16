@@ -13,6 +13,16 @@ from products.models import Product
 COMMENT_MIN = 10
 COMMENT_MAX = 2000
 
+# The product page's sort menu, in menu order: querystring value -> its label
+# and ordering. Every ordering ends newest first, so ties read newest first.
+NEWEST = ("-created_at", "-pk")
+SORTS = {
+    "newest": {"label": "Newest", "ordering": NEWEST},
+    "highest": {"label": "Highest rated", "ordering": ("-rating", *NEWEST)},
+    "lowest": {"label": "Lowest rated", "ordering": ("rating", *NEWEST)},
+}
+DEFAULT_SORT = "newest"
+
 
 @dataclass(frozen=True)
 class RatingSummary:
@@ -84,6 +94,15 @@ class ReviewQuerySet(models.QuerySet):
         if user.is_authenticated:
             reviews = reviews.exclude(user=user)
         return reviews
+
+    def sorted_by(self, sort):
+        """These reviews in the list's ``sort`` order: a key of ``SORTS``.
+
+        Equal ratings fall back to newest first. An unknown ``sort`` is
+        Newest, so a hand-edited querystring still gets a list.
+        """
+        ordering = SORTS.get(sort, SORTS[DEFAULT_SORT])["ordering"]
+        return self.order_by(*ordering)
 
     def rating_summary(self):
         """The counted set's size and average rating in stars."""
