@@ -278,5 +278,33 @@ After completing this phase, I had:
 - A basic 2FA settings section integrated into the Account Security Center created earlier.
 - A way for users to enable and disable two-factor authentication.
 - A foundation for expanding the account security features in later phases.
+
+# Product Reviews
+
+## 1. TDD Review
+
+I chose to continue with TDD (Test-Driven Development) on Product Reviews under AI's discretion. This test was part of Phase 10 of Product Reviews: `test_restore_brings_a_removed_review_back_only_while_its_text_remains`, located in `reviews/tests.py:2710`.
+
+This test was written to ensure that empty reviews cannot be restored while making sure that valid reviews can still appear after being restored. A failing test means that an issue somewhere along the chain is causing empty or otherwise incomplete reviews to be loaded, potentially causing issues with the page loading. A passing test essentially ensures that the review restoration functionality is working correctly and that no issues with reviews occur after restoration.
+
+## 2. Authorization Files
+
+The view that controls review deletion is `DeleteReviewView` in `reviews/views.py:311–348`, and it is routed as `reviews:delete` at `POST /reviews/<pk>/delete/` in `reviews/urls.py:17`.
+
+It uses the `ReviewActionMixin` for permissions. It first checks that users are signed in, then determines the user's permission level: staff or non-staff. It then performs another check to ensure that a user cannot delete another person's review; attempting to do so results in a 404 error. If a live review is deleted by its author, it is removed completely. If a review has already been removed by staff, deleting it clears the text while keeping the record in the database for recordkeeping.
+
+## 3. HTMX Interaction
+
+HTMX essentially replaces parts of a webpage's HTML without reloading the entire page. In this case, I chose to document how a user can submit a review without reloading the webpage.
+
+The `hx-post` attribute sends the request to a URL handled by the review submission view. The returned HTML is a partial from `templates/reviews/partials/_slot_update.html`. HTMX then replaces the "Your Review" section with the updated review and updates the product ratings in `#reviews-summary` and `#details-rating`. This is done through out-of-band swaps, allowing multiple parts of the page to update at once. If validation fails, an error message appears, and the form preserves the information the user previously entered.
+
+## 4. Design Decision From Grill-Me
+
+One of the decisions from the Grill-Me session with Claude that I overruled concerned deletions and what constitutes a true review deletion. Customers can permanently delete their own reviews, while staff can soft-delete reviews, meaning they are hidden from public view but remain recorded in the database.
+
+This created an issue that was later resolved: if a customer tried to repost a review after a staff member had removed it, the system would not allow them because the database record still existed, indicating that they had already reviewed the product. A feature was added to allow a customer to post a new review after staff approval. This functionality was implemented in `reviews/models.py:282–340` and `reviews/views.py:335–344, 349`, and documented in `prd/product-reviews.md:177–203` and `PROMPTS.md:1308`.
+
+
 ### Disclaimer
 ChatGPT was used to format the MD text readability, wording and choice of thought is entirely humanly generated.
