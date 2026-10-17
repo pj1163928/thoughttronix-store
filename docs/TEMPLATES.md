@@ -15,8 +15,9 @@
 - Partials live in `templates/<app>/partials/_<name>.html` — prefixed with an
   underscore, never extending `base.html`. HTMX endpoints render them
   (`_cart_contents`, `_add_button`, `_address_fields`,
-  `_wishlist_button`, `_wishlist_contents`), and so do plain
-  `{% include %}`s (`_status_badge`, `_featured_badge`, `_address`).
+  `_wishlist_button`, `_wishlist_contents`, and the reviews' partials
+  listed in [REVIEWS.md](REVIEWS.md)), and so do plain `{% include %}`s
+  (`_status_badge`, `_featured_badge`, `_address`).
 - Form fields render through a `_field.html` partial. Checkout and the
   address form use `orders/partials/_field.html`; forms built on
   `StyledModelForm` (products, catalog, discount codes) use
@@ -53,6 +54,10 @@
   when the surrounding `.group` card is hovered or focused. Everything
   stands still under `prefers-reduced-motion`. Icons are `aria-hidden`;
   the words beside them carry the meaning.
+- The third is the review highlight: a `:target` rule on
+  `article[id^="review-"]` that briefly lights the review the back
+  office's "View on product page" link jumps to, and holds a steady
+  outline under `prefers-reduced-motion`.
 - Image frames are 4:3 everywhere, matching the placeholder SVGs.
 - `assets/css/source.css` is the Tailwind input; `assets/css/tailwind.css` is
   compiled output (gitignored, never edit).

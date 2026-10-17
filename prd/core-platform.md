@@ -171,3 +171,31 @@ Groups.
 
 `accounts/security.py` joins `orders/services.py`, `dashboard/queries.py`
 and `products/images.py` as the fourth deliberate deep module.
+
+---
+
+## Amendment — product reviews (2026-10-17)
+
+Customers who have bought a product can now review it, and staff
+moderate those reviews after publication. The requirements are in
+`prd/product-reviews.md`, which this amendment points to rather than
+restating; `docs/REVIEWS.md` describes the code as built.
+
+In short: a new app, `reviews`, joins those listed in **Project layout**. It
+imports `products` and `orders`, neither imports it back, and the
+product page reaches it through template tags. A `Review` holds a rating
+in half stars, an optional headline and a comment; each customer writes
+one per product, and only on a non-cancelled order for it. Every
+average, count, sort and filter counts live customer reviews only, never
+staff reviews or removed ones. The catalog gains the products' ratings,
+a sort by rating and a star filter; the back office gains a Reviews tab;
+the dashboard gains a reviews card. Reviews are never registered in the
+Django admin. The feature adds no deep module: its rules live on the
+model and its queryset, and the dashboard's figure is one more function
+in `dashboard/queries.py`.
+
+The **HTMX inventory** above is no longer "exactly three interactions":
+writing, editing, deleting, listing and moderating reviews are HTMX
+too, each endpoint answering with a partial as the **Templates**
+paragraph requires. The **seed** now builds 53 orders, one of them a
+delivered order for `employee`, and a hand-written set of reviews.

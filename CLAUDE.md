@@ -16,6 +16,9 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
 - changing the wishlist, its product-page button, or anything that could
   expose one customer's wishlist to anyone else →
   [docs/WISHLIST.md](docs/WISHLIST.md)
+- changing `Review`, the product page's Reviews section, the catalog's
+  ratings, `ProductQuerySet.with_ratings()`, or the back-office Reviews
+  tab → [docs/REVIEWS.md](docs/REVIEWS.md)
 - touching sign-in, the Account area, two-factor, `SecurityEvent`,
   `accounts/security.py`, the user admin, or the cookie settings →
   [docs/ACCOUNTS.md](docs/ACCOUNTS.md)
@@ -49,7 +52,10 @@ A server-rendered Django 6 storefront and back office. The PRD (`prd/core-platfo
   order and discount management
 - `wishlist/` — the customer wishlist: one per user, private to its owner,
   HTMX add/remove on the product page
-- `dashboard/` — the staff analytics dashboard
+- `reviews/` — product reviews: one per customer per product, written by
+  buyers, edited and deleted in place over HTMX, moderated by staff from
+  the product page and the back-office Reviews tab; never in the admin
+- `dashboard/` — the staff analytics dashboard (may import `reviews`)
 - `templates/` — `base.html` and `templates/<app>/`
 - `assets/` — static sources; `assets/css/tailwind.css` is compiled output
   (gitignored, never edit)

@@ -467,8 +467,8 @@ not a rewrite. Finally, `seed` is run before `db.sqlite3` is committed.
 
 ### Acceptance criteria
 
-- [ ] `docs/REVIEWS.md` exists and CLAUDE.md points to it.
-- [ ] CLAUDE.md's project layout lists `reviews/`.
-- [ ] The core PRD carries a dated amendment rather than a rewrite.
-- [ ] The seed's docstrings and count comments say 53 orders.
-- [ ] `uv run pytest` is green and `uv run ruff check .` is clean.
+- [x] `docs/REVIEWS.md` exists and CLAUDE.md points to it.
+- [x] CLAUDE.md's project layout lists `reviews/`.
+- [x] The core PRD carries a dated amendment rather than a rewrite.
+- [x] The seed's docstrings and count comments say 53 orders.
+- [x] `uv run pytest` is green and `uv run ruff check .` is clean.

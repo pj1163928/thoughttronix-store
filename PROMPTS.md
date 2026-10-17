@@ -30,6 +30,61 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-17 — Product Reviews: Phase 12/12, Documentation and wrap-up
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 12`.
+2. "Continue implementing" (approving the brief).
+3. Answered "Commit and push" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - `docs/REVIEWS.md` documents the feature as built: the model, who may
+    write and change a review, the counted set, the soft dependency in
+    `with_ratings()`, the HTMX endpoints, ids and shared partials, the
+    Reviews tab and the seed.
+  - CLAUDE.md points to it and lists `reviews/`; the core PRD carries a
+    dated amendment instead of a rewrite.
+  - No code changes. The full suite has 1,300 tests, all passing.
+    `ruff check` and `ruff format` are clean. No migrations. `seed` ran
+    twice cleanly (53 orders, 27 reviews), which also refreshed
+    `db.sqlite3`.
+- **Changes:**
+  - `docs/REVIEWS.md` — new, shaped like `docs/WISHLIST.md`, with an
+    endpoint table like the plan's.
+  - `CLAUDE.md` — a "Read before…" line for reviews, a `reviews/`
+    project-layout entry, and a note that `dashboard/` may import
+    `reviews`.
+  - `prd/core-platform.md` — "Amendment — product reviews (2026-10-17)",
+    pointing to `prd/product-reviews.md`. It notes the new app, the
+    counted set, the HTMX inventory growing past "exactly three
+    interactions", no new deep module, and the seed's 53 orders.
+  - `docs/TEMPLATES.md` — the partials list points to the reviews'
+    partials, and the styling section records the review highlight's
+    `:target` rule in `assets/css/source.css`.
+  - `plans/product-reviews.md` — Phase 12's criteria ticked.
+  - `db.sqlite3` — reseeded.
+- **TDD:** skipped. The phase is documentation and a seed check, with no
+  rule or behavior for a test to drive.
+- **Decisions:**
+  - The seed's docstrings and count comments already said 53 orders
+    (since Phase 2); a search found no stale "52", so the criterion was
+    checked rather than changed.
+  - `docs/TEMPLATES.md` was updated as well, though the plan doesn't
+    name it, because its partials list and its tally of rules in
+    `source.css` would otherwise be incomplete.
+  - `README.md`, `MAP.md` and `REFLECTION.md` were left alone: CLAUDE.md
+    says they are course write-ups, not a source of truth.
+- **Deviations:** none.
+- **Sideways:** the first draft of the amendment said `reviews` "joins
+  the four" apps in the core PRD's project layout, which overlooked
+  `wishlist`; it was reworded to "joins those listed" before the tests
+  ran.
+
+---
+
 ## 2026-10-16 — Product Reviews: Phase 11/12, Dashboard card
 
 ### Prompts
