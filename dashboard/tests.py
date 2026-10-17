@@ -9,10 +9,12 @@ from decimal import Decimal
 from http import HTTPStatus
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
+from reviews.models import Review
 
 from . import queries
 
@@ -201,6 +203,59 @@ def test_top_products_respect_limit_cancellation_and_period(customer):
     assert [entry["product_name"] for entry in top] == ["Pulse Halo", "Whisper"]
 
 
+# --- Reviews ------------------------------------------------------------------
+
+
+def make_review(username, product, rating, *, days_ago=0, staff=False):
+    """One review by a fresh user, backdated like ``make_order``."""
+    author = get_user_model().objects.create_user(username=username, is_staff=staff)
+    return Review.objects.create(
+        user=author,
+        product=product,
+        rating=rating,
+        comment="Does what it promises.",
+        created_at=timezone.now() - timedelta(days=days_ago) + timedelta(seconds=5),
+    )
+
+
+def test_review_summary_counts_only_live_customer_reviews(product):
+    make_review("ada", product, 8)
+    make_review("bo", product, 10)
+    make_review("employee", product, 2, staff=True)
+    removed = make_review("cy", product, 2)
+    removed.removed_at = timezone.now()
+    removed.save()
+
+    summary = queries.review_summary()
+
+    assert (summary.count, summary.average) == (2, 4.5)
+
+
+def test_review_summary_counts_from_since_or_all_time(product):
+    make_review("ada", product, 10, days_ago=5)
+    make_review("bo", product, 6, days_ago=29)
+    make_review("cy", product, 2, days_ago=60)
+
+    recent = queries.review_summary(since(30))
+    ever = queries.review_summary(None)
+
+    assert (recent.count, recent.average) == (2, 4.0)
+    assert (ever.count, ever.average) == (3, 3.0)
+
+
+def test_review_summary_of_an_empty_period_is_zero_with_no_average(product):
+    make_review("ada", product, 8, days_ago=60)
+
+    summary = queries.review_summary(since(30))
+
+    assert (summary.count, summary.average) == (0, None)
+
+
+def test_review_summary_is_documented_and_typed():
+    assert queries.review_summary.__doc__
+    assert set(queries.review_summary.__annotations__) == {"since", "return"}
+
+
 # --- The view ------------------------------------------------------------------
 
 
@@ -276,3 +331,34 @@ def test_a_quiet_period_is_not_the_empty_store(client, staff_user, customer):
 
     assert "No sales yet" not in page
     assert "No sales in this period" in page
+
+
+def test_the_reviews_card_follows_the_period(client, staff_user, customer, product):
+    make_order(customer, "100.00")
+    make_review("ada", product, 6, days_ago=5)
+    make_review("bo", product, 10, days_ago=60)
+    client.force_login(staff_user)
+
+    recent = client.get(reverse("dashboard:index"))
+    ever = client.get(reverse("dashboard:index"), {"period": "all"})
+
+    assert (recent.context["reviews"].count, recent.context["reviews"].average) == (
+        1,
+        3.0,
+    )
+    assert (ever.context["reviews"].count, ever.context["reviews"].average) == (2, 4.0)
+    page = ever.content.decode()
+    assert "Reviews in this period" in page
+    assert "Average customer rating in this period" in page
+    assert "out of 5, excluding staff and removed reviews" in page
+
+
+def test_a_period_without_reviews_shows_zero_and_a_dash(client, staff_user, customer):
+    make_order(customer, "100.00")
+    client.force_login(staff_user)
+
+    page = client.get(reverse("dashboard:index")).content.decode()
+
+    assert '<div class="stat-value">0</div>' in page
+    assert '<div class="stat-value opacity-50">—</div>' in page
+    assert "no customer reviews in this period" in page

@@ -1,9 +1,10 @@
-"""Dashboard aggregations — the second of the codebase's three deep modules.
+"""Dashboard aggregations — one of the codebase's four deep modules.
 
-The interface is the product: six functions that answer the questions
+The interface is the product: seven functions that answer the questions
 leadership actually asks. Every one takes an optional ``since`` cutoff
-(``None`` means all time) and excludes cancelled orders — cancelled
-revenue is money the store never keeps.
+(``None`` means all time). The sales figures exclude cancelled orders —
+cancelled revenue is money the store never keeps — and the review figures
+use only the counted set, the same reviews behind every product's numbers.
 
 Two of these count money differently, deliberately. ``total_revenue``
 sums what was charged, after discounts. ``top_products`` sums line items
@@ -20,6 +21,7 @@ from django.db.models.functions import TruncDate, TruncMonth, TruncWeek
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
+from reviews.models import RatingSummary, Review
 
 ZERO = Decimal("0.00")
 
@@ -119,6 +121,19 @@ def top_products(since: datetime | None = None, *, limit: int = 5) -> list[dict]
         )
         .order_by("-revenue")[:limit]
     )
+
+
+def review_summary(since: datetime | None = None) -> RatingSummary:
+    """How many customer reviews arrived at or after ``since``, and their average.
+
+    Only the counted set — live reviews not written by staff — the same
+    reviews behind every product's numbers. ``average`` is in stars
+    (1.0–5.0), or ``None`` when the period has no counted reviews.
+    """
+    reviews = Review.objects.all()
+    if since is not None:
+        reviews = reviews.filter(created_at__gte=since)
+    return reviews.rating_summary()
 
 
 def _floor(day: date, bucket: str) -> date:

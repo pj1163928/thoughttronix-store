@@ -30,6 +30,69 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-16 — Product Reviews: Phase 11/12, Dashboard card
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 11`.
+2. "Continue tdd phass combining red and green" (approving the brief and
+   both TDD behaviors, and asking to run each red-green cycle without
+   stopping in between).
+3. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - `dashboard.queries.review_summary(since)` returns how many counted
+    reviews (live, not by staff) arrived at or after `since`, and their
+    average in stars; `None` means all time.
+  - The dashboard gains a second stats row: "Reviews in this period" and
+    "Average customer rating in this period", with a star row beside the
+    average. Both follow the period selector. An empty period shows 0
+    and a dash.
+  - 6 new tests; the full suite has 1,300, all passing. `ruff check`
+    and `ruff format` are clean. No migrations; the seed is unchanged.
+- **Changes:**
+  - `dashboard/queries.py` — `review_summary()`, reusing
+    `ReviewQuerySet.rating_summary()` so the counted set and the halving
+    to stars stay in one place. The module docstring now says seven
+    functions and four deep modules, and that the review figures use the
+    counted set rather than the cancelled-orders rule.
+  - `dashboard/views.py` — passes `reviews` (the period's summary) to the
+    template.
+  - `templates/dashboard/dashboard.html` — the reviews stats row, using
+    `RatingSummary.average_display` and the shared `_stars.html` partial
+    (decorative; the figure carries the meaning).
+  - `dashboard/tests.py` — a `make_review` helper and tests for the
+    counted set, the `since` cutoff, the empty period, the docstring and
+    type hints, the card following the period, and the dash.
+  - `plans/product-reviews.md` — Phase 11's criteria ticked.
+- **TDD:**
+  1. Only the counted set: staff and removed reviews are left out of the
+     count and the average. Red on `(0, None) != (2, 4.5)` against a
+     stub; green by delegating to `rating_summary()`, which applies
+     `.counted()`.
+  2. The `since` cutoff, inclusive, with `None` as all time. Red on
+     `(3, 3.0) != (2, 4.0)`; green with `created_at__gte=since`.
+- **Decisions:**
+  - The function returns the existing `reviews.models.RatingSummary`
+    rather than a new dict, so the card rounds the average half up
+    exactly as the product page does.
+  - The card sits under the revenue stats, inside the "store has sales"
+    branch: a store with no sales can have no counted reviews, since
+    only buyers may write one.
+  - The view tests read the numbers from the response context, because
+    the page's prices ("$140.00") contain strings like "4.0".
+- **Deviations:** at the user's request, each TDD cycle ran red then
+  green without a stop between them.
+- **Sideways:** a test written through a shell heredoc had its `
+`
+  escape expanded into a real newline, which broke collection with a
+  `SyntaxError`. That assertion also depended on template whitespace, so
+  it was replaced by a check of the stat's description text.
+
+---
+
 ## 2026-10-16 — Product Reviews: Phase 10/12, Back-office Reviews tab: actions
 
 ### Prompts

@@ -41,6 +41,30 @@
       </div>
     </div>
 
+    <div class="stats stats-vertical mb-8 w-full bg-base-100 shadow-md sm:stats-horizontal">
+      <div class="stat">
+        <div class="stat-title">Reviews in this period</div>
+        <div class="stat-value">{{ reviews.count|intcomma }}</div>
+        <div class="stat-desc">{{ period_label|lower }}, customer reviews only</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">Average customer rating in this period</div>
+        {% if reviews.count %}
+          <div class="stat-value flex items-center gap-3">
+            {{ reviews.average_display }}
+            {# The figure says it; the stars are decoration. #}
+            <span aria-hidden="true" class="inline-flex">
+              {% include "reviews/partials/_stars.html" with rating=reviews.half_stars size="md" label="" only %}
+            </span>
+          </div>
+          <div class="stat-desc">out of 5, excluding staff and removed reviews</div>
+        {% else %}
+          <div class="stat-value opacity-50">—</div>
+          <div class="stat-desc">no customer reviews in this period</div>
+        {% endif %}
+      </div>
+    </div>
+
     <div class="grid items-start gap-8 lg:grid-cols-5">
       <div class="card bg-base-100 shadow-md lg:col-span-3">
         <div class="card-body">

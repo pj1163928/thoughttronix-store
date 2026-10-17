@@ -442,13 +442,13 @@ date range. An empty period shows zero and a dash.
 
 ### Acceptance criteria
 
-- [ ] The function counts only counted reviews created at or after
+- [x] The function counts only counted reviews created at or after
       `since`, and all of them when `since` is `None`.
-- [ ] The average is in stars (1.0 to 5.0), not half stars.
-- [ ] An empty period returns zero and no average, and the card shows a
+- [x] The average is in stars (1.0 to 5.0), not half stars.
+- [x] An empty period returns zero and no average, and the card shows a
       dash.
-- [ ] Changing the dashboard's period changes the card.
-- [ ] The function has a docstring and type hints.
+- [x] Changing the dashboard's period changes the card.
+- [x] The function has a docstring and type hints.
 
 ---
 

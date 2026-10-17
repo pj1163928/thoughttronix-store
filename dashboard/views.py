@@ -22,7 +22,7 @@ DEFAULT_PERIOD = "30"
 
 
 class DashboardView(StaffRequiredMixin, TemplateView):
-    """Revenue, order volume, and top products for the selected period."""
+    """Revenue, order volume, top products and customer reviews for the selected period."""
 
     template_name = "dashboard/dashboard.html"
     extra_context = {"section": "dashboard"}
@@ -50,6 +50,7 @@ class DashboardView(StaffRequiredMixin, TemplateView):
                     (point["revenue"] for point in series), default=Decimal("0")
                 ),
                 "top_products": queries.top_products(since),
+                "reviews": queries.review_summary(since),
                 # The all-time check: a quiet period is not an empty store.
                 "store_has_sales": queries.order_count() > 0,
             }
