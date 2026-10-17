@@ -30,6 +30,167 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-16 — Product Reviews: Phase 9/12, Back-office Reviews tab: list and filters
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 9`.
+2. "Continue development"
+3. Answered "Don't commit" to the commit offer.
+4. "Ok some adjustments I would like to make with the reviews tab: It is
+   organized a bit wierd it is indexed based on the product name I would
+   rather it be based on the users actual name, but still ahve indexing
+   for the products if we so choose. Next I would like to be able to edit
+   add and review the reviews on the page just as if we were on the
+   product page, lastly I would like to have an option to jump to review
+   on product page this will immediately navigate to the product page and
+   briefly highlight the review, then I would like to be able to search
+   for a review off of any of the criteria and also include profile
+   pictures as well."
+5. Answered two clarifying questions: "Both" (cards led by the reviewer,
+   and a sort menu defaulting to Reviewer A–Z with Product A–Z and
+   Newest), and "Later, as Phase 10" for the in-place actions.
+6. Answered "Don't commit" to the second commit offer.
+
+### Summary
+
+- **Outcome:**
+  - A "Reviews" tab in the back-office rail, between Discounts and
+    Dashboard, opens `reviews:manage` at `/backoffice/reviews/`. All
+    staff may open it; visitors are sent to sign-in and customers get a
+    403, through `StaffRequiredMixin`.
+  - It lists every review, removed and staff ones included, 20 a page,
+    as one card per review. Each card leads with the author's profile
+    picture (or the silhouette), full name and username, then the
+    product (linked to its page), a Live or Removed badge, a Customer or
+    Staff badge, the stars and number, headline and comment, the posted
+    date, "Edited <date>", "Edited by <staff username> <date>" and
+    "Removed by <staff username> on <date>".
+  - A sort menu: Reviewer A–Z (the default; first name, then last name,
+    accounts without a first name last by username), Product A–Z and
+    Newest, each ending newest first.
+  - A search box matches every word of `q`, case-insensitively, against
+    the author's username, first and last name, the product name, the
+    headline and the comment.
+  - Search and four filters (product, rating, author type, status) in
+    one GET form compose, survive pagination through `{% querystring
+    %}`, keep their selection, and offer "Clear filters" (which keeps
+    the sort) while any is active.
+  - Each live card has "View on product page →", linking to
+    `<product>?review=<pk>#review-<pk>`. The product page then lists
+    every page of reviews down to that one, Show more carrying on after
+    it, and a CSS `:target` rule makes it glow for three seconds (a
+    steady outline under reduced motion). Removed cards have no link.
+  - 48 new tests; the full suite has 1,270, all passing. `ruff check` and
+    `ruff format` are clean. No migrations, and the seed is unchanged.
+- **Changes:**
+  - `reviews/models.py` — `MANAGE_SORTS`, `DEFAULT_MANAGE_SORT` and
+    `SEARCH_FIELDS`; `ReviewQuerySet.removed()`, beside `live()`;
+    `filtered(q, product, rating, author, status)`, which applies only
+    what is given; `searched(q)`; `sorted_for_staff(sort)`; and
+    `newer_than(review)`, a review's place in the Newest list.
+  - `reviews/forms.py` — `ReviewFilterForm`: search, sort and four
+    filters read from the querystring; `filters()` hands the valid ones
+    to `filtered()`, `chosen_sort()` the sort, and `is_active()` drives
+    "Clear filters".
+  - `reviews/views.py` — `ManageReviewListView(StaffRequiredMixin,
+    ListView)`, `paginate_by = 20`, `section = "reviews"`, selecting the
+    product, author, moderator and remover in one query.
+    `list_context()` now also returns `reviews`, the rows to draw, and
+    the new `revealing_list_context()` widens them down to a jumped-to
+    review.
+  - `reviews/templatetags/reviews_extras.py` — `reviews_section` reads
+    `?review=` and uses `revealing_list_context()`.
+  - `reviews/urls.py` — `reviews:manage` at `/backoffice/reviews/`.
+  - `templates/reviews/manage_reviews.html` — new: the tab, its search,
+    sort and filter form, pagination and the two empty states.
+  - `templates/reviews/partials/_manage_review.html` — new: one review as
+    the back office shows it, `id="review-<pk>"`, ready for Phase 10's
+    in-place actions.
+  - `templates/reviews/partials/_review_page.html` and
+    `_reviews_section.html` — loop over `reviews` instead of
+    `page.object_list`.
+  - `templates/backoffice/base.html` — the Reviews tab.
+  - `assets/css/source.css` — the `:target` highlight and its
+    reduced-motion fallback.
+  - `reviews/tests.py` — tests for every acceptance criterion (below).
+  - `plans/product-reviews.md` — Phase 9 rewritten for the adjustments,
+    with a dated note as for Phase 6; its querystring list gains `q`,
+    `sort` and the product page's `review`; every criterion ticked.
+- **TDD:** skipped. The gate reuses the tested `StaffRequiredMixin`, and
+  the list follows `ManageOrderListView`'s filter-and-paginate pattern
+  with plain field matches and no new business rule. Ordinary tests
+  cover: visitors, customers and staff; the active and inactive tab;
+  removed and staff reviews newest first; 20 a page; each row's
+  contents; the staff editor and remover by username, and "a former
+  staff member" once that account is deleted; blanked text; each filter
+  alone, all four combined, pagination keeping them, an unrecognised
+  value ignored, the selection shown; the product menu; both empty
+  states; and no query per row. After the adjustments: the reviewer
+  sort (names, case, nameless last, a reviewer's reviews newest first),
+  the product sort, an unknown sort; search by each field and across
+  fields, composed with filters and pagination; "Clear filters" keeping
+  the sort; profile pictures; the jump link present only on live rows;
+  the product page listed down to a review on pages two and three; a
+  jump to a removed, other-product, missing or non-numeric pk falling
+  back to the first page; and the CSS rule's presence.
+- **Decisions:**
+  - One card per review rather than a table: comments run to 2,000
+    characters, the page must work at phone width, and Phase 10 swaps
+    each review in place.
+  - A filter value the form doesn't recognise (`?rating=99`,
+    `?status=bogus`, a deleted product's pk) is ignored on its own; the
+    other filters still apply.
+  - The product menu offers only products with at least one review, of
+    any status, by name.
+  - The rating filter matches the stored half-star value exactly, with
+    the `Review.Rating` labels.
+  - A removed review whose text its author deleted reads "Text deleted
+    by its author."; a moderator or remover whose account is gone
+    (`SET_NULL`) reads "a former staff member".
+  - Empty states: "No reviews match that search" with "Show all
+    reviews", or "No reviews yet" when there are none at all.
+  - The sort is chosen with the same Apply button as the filters: an
+    auto-submitting menu would need JavaScript beyond HTMX.
+  - The jump always opens the product page in its default Newest sort,
+    so `newer_than()` covers only that order. A staff member's jump to
+    their own review lands on the "Your review" slot, which has the same
+    `#review-<pk>` anchor.
+  - Search words are ANDed, each free to match a different field, so a
+    full name or "reviewer + product" both work.
+- **Deviations:**
+  - After the first build, the user asked for the list to be led by and
+    sorted on the reviewer's real name, for a search, profile pictures
+    and a jump to the review on the product page. All were added, and
+    the plan's Phase 9 was rewritten to match.
+  - The user also asked for in-place actions on the tab; asked whether
+    to build them now, they chose to keep them for Phase 10.
+- **Sideways:**
+  - Appending the tests through a shell heredoc failed to parse and
+    wrote nothing (checked by line count); they went in through the Edit
+    tool instead.
+  - One new test first failed on its own assertion: it looked for the
+    unreviewed product by `<option value="<pk>">`, and that pk was also a
+    rating value. It now checks for the product's name.
+  - The first wait for the full suite triggered on ruff's "All checks
+    passed!" rather than pytest's summary; it was re-armed on pytest's
+    timing line.
+  - The adjusted form first defined a `sort()` method beside its `sort`
+    field, which would have replaced the field; caught before running
+    and renamed `chosen_sort()`.
+  - Python's text-mode writes had turned some edited files' line
+    endings to CRLF in the working copy, which broke an exact-match
+    edit. Later edits normalise before matching; with `core.autocrlf`
+    on, the index still holds LF.
+  - The default-sort test first expected the Reviewer option marked
+    `selected`; with no `?sort=` the menu simply shows its first option,
+    so the test checks the order instead.
+  - Two shell heredocs (the first test append, and this log update)
+    failed to parse; both were redone through the Edit tool or a
+    scratchpad script.
+
+---
+
 ## 2026-10-15 — Product Reviews: Phase 8/12, Staff remove and the removed states
 
 ### Prompts

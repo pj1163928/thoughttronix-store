@@ -2190,3 +2190,507 @@ def test_the_seed_has_one_removed_review_and_its_author_sees_the_notice(client):
     page = client.get(removed.product.get_absolute_url()).content.decode()
     assert REMOVED_NOTICE in page
     assert removed.comment not in page
+
+
+# --- The back office: the Reviews tab ------------------------------------------
+
+
+def manage_url(**params):
+    url = reverse("reviews:manage")
+    return f"{url}?{urlencode(params)}" if params else url
+
+
+def listed_ids(response):
+    """The review pks on a Reviews tab page, in the order shown."""
+    return [int(pk) for pk in REVIEW_ID.findall(response.content.decode())]
+
+
+def backdated(review, days_ago):
+    review.created_at = timezone.now() - timedelta(days=days_ago)
+    review.save()
+    return review
+
+
+def flat(response):
+    """The page with its whitespace collapsed, for phrases split across lines."""
+    return " ".join(response.content.decode().split())
+
+
+def test_visitors_are_sent_to_sign_in_from_the_reviews_tab(client):
+    response = client.get(manage_url())
+
+    assert response.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in response.url
+
+
+def test_customers_cannot_open_the_reviews_tab(client, customer):
+    client.force_login(customer)
+
+    assert client.get(manage_url()).status_code == HTTPStatus.FORBIDDEN
+
+
+def test_every_staff_member_can_open_the_reviews_tab(client, staff_user):
+    client.force_login(staff_user)
+
+    response = client.get(manage_url())
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.context["section"] == "reviews"
+
+
+def test_the_reviews_tab_shows_as_active_in_the_rail(client, staff_user):
+    client.force_login(staff_user)
+
+    page = flat(client.get(manage_url()))
+
+    assert f'class="tab tab-active" href="{manage_url()}">Reviews</a>' in page
+
+
+def test_other_back_office_pages_link_the_reviews_tab_inactive(client, staff_user):
+    client.force_login(staff_user)
+
+    page = flat(client.get(reverse("orders:manage_orders")))
+
+    assert f'class="tab " href="{manage_url()}">Reviews</a>' in page
+
+
+def test_the_tab_lists_removed_and_staff_reviews_newest_first_when_asked(
+    client, customer, staff_user, product
+):
+    old = backdated(make_review(customer, product), 30)
+    removed = backdated(make_review(shopper("dcole", "Dana", "Cole"), product), 20)
+    removed.remove(staff_user)
+    staff_review = backdated(make_review(staff_user, product), 10)
+    client.force_login(staff_user)
+
+    response = client.get(manage_url(sort="newest"))
+
+    assert listed_ids(response) == [staff_review.pk, removed.pk, old.pk]
+
+
+def test_the_tab_shows_twenty_reviews_a_page(client, staff_user, product):
+    for n in range(21):
+        backdated(make_review(shopper(f"shopper{n}"), product), n)
+    client.force_login(staff_user)
+
+    first = client.get(manage_url())
+    second = client.get(manage_url(page=2))
+
+    assert len(listed_ids(first)) == 20
+    assert len(listed_ids(second)) == 1
+    assert "21 reviews" in flat(first)
+
+
+def test_a_row_names_the_product_author_and_rating(client, staff_user, product):
+    review = make_review(
+        shopper("dcole", "Dana", "Cole"), product, rating=7, comment="Listens well."
+    )
+    review.headline = "Mostly good"
+    review.save()
+    client.force_login(staff_user)
+
+    page = flat(client.get(manage_url()))
+
+    assert f'href="{product.get_absolute_url()}"' in page
+    assert '<p class="font-semibold leading-tight">Dana Cole</p>' in page
+    assert '<p class="font-mono text-sm opacity-70">dcole</p>' in page
+    assert 'aria-label="3½ stars"' in page
+    assert "Mostly good" in page
+    assert "Listens well." in page
+    assert ">Live</span>" in page
+    assert ">Customer</span>" in page
+
+
+def test_a_row_names_the_staff_member_who_edited_or_removed_it(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product)
+    review.edited_at = timezone.now()
+    review.moderated_at = timezone.now()
+    review.moderated_by = staff_user
+    review.save()
+    review.remove(staff_user)
+    client.force_login(staff_user)
+
+    page = flat(client.get(manage_url()))
+
+    assert "<li>Edited <time" in page
+    assert 'Edited by <span class="font-mono">employee</span>' in page
+    assert 'Removed by <span class="font-mono">employee</span> on' in page
+    assert ">Removed</span>" in page
+
+
+def test_a_row_survives_its_moderators_account_being_deleted(
+    client, customer, staff_user, product
+):
+    """``moderated_by`` and ``removed_by`` are SET_NULL; the row says so."""
+    moderator = shopper("former", "Fran", "Mer")
+    moderator.is_staff = True
+    moderator.save()
+    review = make_review(customer, product)
+    review.moderated_at = timezone.now()
+    review.moderated_by = moderator
+    review.save()
+    review.remove(moderator)
+    moderator.delete()
+    client.force_login(staff_user)
+
+    page = flat(client.get(manage_url()))
+
+    assert "Edited by a former staff member" in page
+    assert "Removed by a former staff member on" in page
+
+
+def test_a_staff_review_is_marked_as_staff(client, staff_user, product):
+    make_review(staff_user, product)
+    client.force_login(staff_user)
+
+    assert ">Staff</span>" in flat(client.get(manage_url()))
+
+
+def test_a_removed_review_whose_text_was_deleted_says_so(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    review.delete_text()
+    client.force_login(staff_user)
+
+    assert "Text deleted by its author." in flat(client.get(manage_url()))
+
+
+@pytest.mark.parametrize(
+    ("params", "expected"),
+    [
+        ({"product": "featured"}, ["other"]),
+        ({"rating": 3}, ["one_half"]),
+        ({"author": "staff"}, ["staff"]),
+        ({"author": "customer"}, ["removed", "other", "one_half"]),
+        ({"status": "removed"}, ["removed"]),
+        ({"status": "live"}, ["staff", "other", "one_half"]),
+    ],
+)
+def test_each_filter_narrows_the_list(
+    client, customer, staff_user, product, featured_product, params, expected
+):
+    reviews = {
+        "one_half": backdated(make_review(customer, product, rating=3), 40),
+        "other": backdated(
+            make_review(shopper("dcole", "Dana", "Cole"), featured_product), 30
+        ),
+        "removed": backdated(make_review(shopper("gfinch"), product), 20),
+        "staff": backdated(make_review(staff_user, product), 10),
+    }
+    reviews["removed"].remove(staff_user)
+    if params.get("product") == "featured":
+        params = {"product": featured_product.pk}
+    client.force_login(staff_user)
+
+    response = client.get(manage_url(sort="newest", **params))
+
+    assert listed_ids(response) == [reviews[name].pk for name in expected]
+
+
+def test_filters_combine(client, customer, staff_user, product, featured_product):
+    wanted = make_review(customer, product, rating=6)
+    make_review(customer, featured_product, rating=6)
+    make_review(shopper("dcole"), product, rating=8)
+    make_review(staff_user, product, rating=6)
+    make_review(shopper("gfinch"), product, rating=6).remove(staff_user)
+    client.force_login(staff_user)
+
+    response = client.get(
+        manage_url(product=product.pk, rating=6, author="customer", status="live")
+    )
+
+    assert listed_ids(response) == [wanted.pk]
+
+
+def test_pagination_keeps_the_filters(client, staff_user, product):
+    for n in range(21):
+        backdated(make_review(shopper(f"shopper{n}"), product, rating=10), n)
+    make_review(shopper("other"), product, rating=2)
+    client.force_login(staff_user)
+
+    page = client.get(manage_url(rating=10, status="live")).content.decode()
+
+    next_link = html.unescape(re.search(r'href="([^"]*page=2[^"]*)"', page).group(1))
+    assert "rating=10" in next_link
+    assert "status=live" in next_link
+    assert len(listed_ids(client.get(f"{manage_url()}{next_link}"))) == 1
+
+
+def test_an_unrecognised_filter_is_ignored_and_the_rest_still_apply(
+    client, customer, staff_user, product
+):
+    kept = make_review(customer, product, rating=8)
+    make_review(shopper("dcole"), product, rating=4)
+    client.force_login(staff_user)
+
+    response = client.get(manage_url(rating=8, status="bogus", product=999999))
+
+    assert response.status_code == HTTPStatus.OK
+    assert listed_ids(response) == [kept.pk]
+
+
+def test_the_filters_show_which_are_active(client, staff_user, customer, product):
+    make_review(customer, product, rating=8)
+    client.force_login(staff_user)
+
+    plain = flat(client.get(manage_url()))
+    filtered = flat(client.get(manage_url(rating=8, author="customer")))
+
+    assert "Clear filters" not in plain
+    assert "Clear filters" in filtered
+    assert '<option value="8" selected>' in filtered
+    assert '<option value="customer" selected>' in filtered
+
+
+def test_the_product_menu_offers_only_reviewed_products(
+    client, customer, staff_user, product, featured_product
+):
+    make_review(customer, product)
+    client.force_login(staff_user)
+
+    page = flat(client.get(manage_url()))
+
+    assert f'<option value="{product.pk}">{product.name}</option>' in page
+    assert featured_product.name not in page
+
+
+def test_the_tab_says_whether_it_is_empty_or_filtered_empty(
+    client, customer, staff_user, product
+):
+    client.force_login(staff_user)
+    assert "No reviews yet" in flat(client.get(manage_url()))
+
+    make_review(customer, product)
+    filtered = client.get(manage_url(status="removed"))
+
+    assert "No reviews match that search" in flat(filtered)
+    assert listed_ids(filtered) == []
+
+
+def test_the_reviews_tab_adds_no_query_per_row(
+    client, customer, staff_user, product, featured_product
+):
+    def queries_for_page():
+        with CaptureQueriesContext(connection) as queries:
+            client.get(manage_url())
+        return len(queries)
+
+    client.force_login(staff_user)
+    make_review(customer, product).remove(staff_user)
+    few = queries_for_page()
+    for n in range(5):
+        review = make_review(shopper(f"shopper{n}", "S", "N"), featured_product)
+        review.moderated_at = timezone.now()
+        review.moderated_by = staff_user
+        review.save()
+        review.remove(staff_user)
+
+    assert queries_for_page() == few
+
+
+def test_the_tab_sorts_by_reviewer_name_by_default(client, staff_user, product):
+    """First name, then last name; accounts without a first name last, by username."""
+    zed = make_review(shopper("zz", "Zoe", "Adams"), product)
+    nameless = make_review(shopper("aaron"), product)
+    ann_b = make_review(shopper("ab", "ann", "Baker"), product)
+    ann_a = make_review(shopper("aa", "Ann", "Abbott"), product)
+    client.force_login(staff_user)
+
+    response = client.get(manage_url())
+
+    assert listed_ids(response) == [ann_a.pk, ann_b.pk, zed.pk, nameless.pk]
+    # With no ?sort= the menu shows its first option, Reviewer A–Z.
+    assert re.search(
+        r'<select name="sort"[^>]*> <option value="reviewer"', flat(response)
+    )
+
+
+def test_one_reviewers_reviews_read_newest_first(
+    client, staff_user, product, featured_product
+):
+    dana = shopper("dcole", "Dana", "Cole")
+    older = backdated(make_review(dana, product), 5)
+    newer = backdated(make_review(dana, featured_product), 1)
+    client.force_login(staff_user)
+
+    assert listed_ids(client.get(manage_url())) == [newer.pk, older.pk]
+
+
+def test_the_tab_can_sort_by_product(
+    client, customer, staff_user, product, featured_product
+):
+    """Cogitator Crown before Seraphine Home Hub, each product's newest first."""
+    hub_old = backdated(make_review(customer, product), 9)
+    hub_new = backdated(make_review(shopper("dcole", "Dana", "Cole"), product), 1)
+    crown = backdated(make_review(customer, featured_product), 5)
+    client.force_login(staff_user)
+
+    response = client.get(manage_url(sort="product"))
+
+    assert listed_ids(response) == [crown.pk, hub_new.pk, hub_old.pk]
+
+
+def test_an_unknown_sort_is_reviewer_order(client, staff_user, product):
+    bea = make_review(shopper("b", "Bea", "Ng"), product)
+    ada = make_review(shopper("a", "Ada", "Ng"), product)
+    client.force_login(staff_user)
+
+    assert listed_ids(client.get(manage_url(sort="bogus"))) == [ada.pk, bea.pk]
+
+
+@pytest.mark.parametrize(
+    "q",
+    ["dcole", "DANA", "Cole", "dana cole", "cogitator", "Gremlin", "crackles"],
+)
+def test_the_search_finds_a_review_by_any_of_its_words(
+    client, customer, staff_user, product, featured_product, q
+):
+    """Username, first or last name, product, headline or comment, any case."""
+    wanted = make_review(
+        shopper("dcole", "Dana", "Cole"),
+        featured_product,
+        comment="The crown crackles when it thinks.",
+    )
+    wanted.headline = "A gremlin in the circuit"
+    wanted.save()
+    make_review(customer, product, comment="Nothing to see in this one.")
+    client.force_login(staff_user)
+
+    assert listed_ids(client.get(manage_url(q=q))) == [wanted.pk]
+
+
+def test_every_word_of_a_search_must_match_somewhere(
+    client, staff_user, product, featured_product
+):
+    dana = shopper("dcole", "Dana", "Cole")
+    wanted = make_review(dana, featured_product)
+    make_review(dana, product)
+    make_review(shopper("gfinch", "Gordon", "Finch"), featured_product)
+    client.force_login(staff_user)
+
+    assert listed_ids(client.get(manage_url(q="dana cogitator"))) == [wanted.pk]
+
+
+def test_the_search_composes_with_the_filters_and_survives_pagination(
+    client, staff_user, product
+):
+    for n in range(21):
+        backdated(make_review(shopper(f"fan{n}"), product, rating=10), n)
+    backdated(make_review(shopper("fan_low"), product, rating=2), 30)
+    make_review(shopper("critic"), product, rating=10)
+    client.force_login(staff_user)
+
+    page = client.get(manage_url(q="fan", rating=10)).content.decode()
+
+    assert "21 reviews" in " ".join(page.split())
+    assert 'value="fan"' in page
+    next_link = html.unescape(re.search(r'href="([^"]*page=2[^"]*)"', page).group(1))
+    assert "q=fan" in next_link
+    assert len(listed_ids(client.get(f"{manage_url()}{next_link}"))) == 1
+
+
+def test_clear_filters_keeps_the_sort(client, customer, staff_user, product):
+    make_review(customer, product)
+    client.force_login(staff_user)
+
+    page = client.get(manage_url(q="customer", sort="product", status="live"))
+
+    assert 'href="?sort=product" class="btn btn-ghost btn-sm">Clear filters' in flat(
+        page
+    )
+
+
+def test_each_row_shows_the_authors_profile_picture_or_the_silhouette(
+    client, staff_user, product, make_image
+):
+    dana = shopper("dcole", "Dana", "Cole")
+    images.set_avatar(dana, images.validate_avatar(make_image()))
+    make_review(dana, product)
+    make_review(shopper("gfinch", "Gordon", "Finch"), product)
+    client.force_login(staff_user)
+
+    page = client.get(manage_url()).content.decode()
+
+    assert dana.avatar.url in page
+    assert "placeholders/avatar.svg" in page
+
+
+def test_a_live_row_links_to_its_review_on_the_product_page(
+    client, customer, staff_user, product
+):
+    live = make_review(customer, product)
+    removed = make_review(shopper("gfinch"), product)
+    removed.remove(staff_user)
+    client.force_login(staff_user)
+
+    page = client.get(manage_url()).content.decode()
+
+    jump = f"{product.get_absolute_url()}?review={{}}#review-{{}}"
+    assert f'href="{jump.format(live.pk, live.pk)}"' in page
+    assert jump.format(removed.pk, removed.pk) not in page
+
+
+def test_jumping_to_a_review_lists_the_product_page_down_to_it(client, product):
+    """A review on the list's third page is shown, with all before it and Show more."""
+    reviews = [
+        dated_review(f"shopper{n}", product, rating=8, days_ago=n) for n in range(25)
+    ]
+    target = reviews[21]
+
+    page = client.get(
+        f"{product.get_absolute_url()}?review={target.pk}"
+    ).content.decode()
+
+    assert [int(pk) for pk in REVIEW_ID.findall(page)] == [r.pk for r in reviews[:30]]
+    assert SHOW_MORE.search(page) is None  # 25 reviews: the third page is the last
+
+
+def test_jumping_to_a_review_on_page_two_leaves_show_more_for_page_three(
+    client, product
+):
+    reviews = [
+        dated_review(f"shopper{n}", product, rating=8, days_ago=n) for n in range(25)
+    ]
+
+    page = client.get(
+        f"{product.get_absolute_url()}?review={reviews[12].pk}"
+    ).content.decode()
+
+    assert [int(pk) for pk in REVIEW_ID.findall(page)] == [r.pk for r in reviews[:20]]
+    assert html.unescape(SHOW_MORE.search(page).group(1)).endswith("page=3")
+
+
+@pytest.mark.parametrize("which", ["removed", "other_product", "garbage", "missing"])
+def test_a_jump_to_a_review_that_isnt_listed_shows_the_first_page(
+    client, staff_user, product, featured_product, which
+):
+    reviews = [
+        dated_review(f"shopper{n}", product, rating=8, days_ago=n) for n in range(12)
+    ]
+    removed = reviews[11]
+    removed.remove(staff_user)
+    elsewhere = make_review(shopper("other"), featured_product)
+    review = {
+        "removed": removed.pk,
+        "other_product": elsewhere.pk,
+        "garbage": "abc",
+        "missing": 999999,
+    }[which]
+
+    page = client.get(f"{product.get_absolute_url()}?review={review}").content.decode()
+
+    assert [int(pk) for pk in REVIEW_ID.findall(page)] == [r.pk for r in reviews[:10]]
+
+
+def test_the_review_jumped_to_is_highlighted_by_css():
+    """The highlight is a :target rule; no JavaScript."""
+    css = (Path(settings.BASE_DIR) / "assets" / "css" / "source.css").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'article[id^="review-"]:target' in css
+    assert "@keyframes review-highlight" in css

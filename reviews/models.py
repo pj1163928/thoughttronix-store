@@ -4,6 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from orders.models import Order, OrderItem
@@ -22,6 +23,33 @@ SORTS = {
     "lowest": {"label": "Lowest rated", "ordering": ("rating", *NEWEST)},
 }
 DEFAULT_SORT = "newest"
+
+# The back office's Reviews tab sorts, in menu order. Reviewer A–Z is by the
+# author's real name, first then last; accounts without a first name go
+# last, by username. Every ordering ends newest first.
+REVIEWER_ORDER = ("nameless", Lower("user__first_name"), Lower("user__last_name"))
+MANAGE_SORTS = {
+    "reviewer": {
+        "label": "Reviewer A–Z",
+        "ordering": (*REVIEWER_ORDER, Lower("user__username"), *NEWEST),
+    },
+    "product": {
+        "label": "Product A–Z",
+        "ordering": (Lower("product__name"), *NEWEST),
+    },
+    "newest": {"label": "Newest", "ordering": NEWEST},
+}
+DEFAULT_MANAGE_SORT = "reviewer"
+
+# The fields the Reviews tab's search box looks in.
+SEARCH_FIELDS = (
+    "user__username",
+    "user__first_name",
+    "user__last_name",
+    "product__name",
+    "headline",
+    "comment",
+)
 
 
 @dataclass(frozen=True)
@@ -75,6 +103,68 @@ class ReviewQuerySet(models.QuerySet):
     def live(self):
         """Reviews staff haven't removed: the ones the public may see."""
         return self.filter(removed_at__isnull=True)
+
+    def removed(self):
+        """Reviews staff have taken down: hidden from the public, kept for the back office."""
+        return self.filter(removed_at__isnull=False)
+
+    def filtered(self, q="", product=None, rating=None, author="", status=""):
+        """The back office's Reviews tab search and filters, applied only where given.
+
+        ``q`` a search (see ``searched``); ``product`` a ``Product``;
+        ``rating`` a stored half-star value; ``author`` ``"customer"`` or
+        ``"staff"`` (by the ``by_staff`` snapshot); ``status`` ``"live"``
+        or ``"removed"``. Each one left empty leaves the list alone, and
+        they compose.
+        """
+        reviews = self.searched(q)
+        if product is not None:
+            reviews = reviews.filter(product=product)
+        if rating is not None:
+            reviews = reviews.filter(rating=rating)
+        if author:
+            reviews = reviews.filter(by_staff=author == "staff")
+        if status == "live":
+            reviews = reviews.live()
+        elif status == "removed":
+            reviews = reviews.removed()
+        return reviews
+
+    def searched(self, q):
+        """Reviews matching every word of ``q``, each word in any ``SEARCH_FIELDS``.
+
+        Case-insensitive. Each word may match a different field, so "dana
+        seraphine" finds Dana's review of Seraphine, and "dana cole" finds
+        Dana Cole by first and last name. A blank ``q`` matches everything.
+        """
+        reviews = self
+        for word in (q or "").split():
+            matches = models.Q()
+            for field in SEARCH_FIELDS:
+                matches |= models.Q(**{f"{field}__icontains": word})
+            reviews = reviews.filter(matches)
+        return reviews
+
+    def sorted_for_staff(self, sort):
+        """These reviews in the Reviews tab's ``sort`` order: a key of ``MANAGE_SORTS``.
+
+        An unknown ``sort`` is Reviewer A–Z, the tab's default.
+        """
+        ordering = MANAGE_SORTS.get(sort, MANAGE_SORTS[DEFAULT_MANAGE_SORT])
+        return self.annotate(
+            nameless=models.Case(
+                models.When(user__first_name="", then=True),
+                default=False,
+                output_field=models.BooleanField(),
+            )
+        ).order_by(*ordering["ordering"])
+
+    def newer_than(self, review):
+        """These reviews ahead of ``review`` in Newest order: its place in that list."""
+        return self.filter(
+            models.Q(created_at__gt=review.created_at)
+            | models.Q(created_at=review.created_at, pk__gt=review.pk)
+        )
 
     def counted(self):
         """The counted set: live customer reviews.

@@ -12,10 +12,12 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 from django.views import View
+from django.views.generic import ListView
 
+from accounts.mixins import StaffRequiredMixin
 from products.models import Product
 
-from .forms import ModerationForm, ReviewForm
+from .forms import ModerationForm, ReviewFilterForm, ReviewForm
 from .models import DEFAULT_SORT, SORTS, Review
 
 SLOT_UPDATE_TEMPLATE = "reviews/partials/_slot_update.html"
@@ -108,7 +110,33 @@ def list_context(user, product, sort=DEFAULT_SORT, page=1):
         page = Paginator(reviews, REVIEWS_PER_PAGE).page(page)
     except InvalidPage as error:
         raise Http404("No such page of reviews.") from error
-    return {"product": product, "page": page, "sort": sort, "sorts": SORTS}
+    return {
+        "product": product,
+        "page": page,
+        "reviews": page.object_list,
+        "sort": sort,
+        "sorts": SORTS,
+    }
+
+
+def revealing_list_context(user, product, review_pk):
+    """The product page's first list, shown down to the review ``review_pk``.
+
+    The Reviews tab's "View on product page" link asks for this, so the
+    review it jumps to is on the page however far down the Newest list it
+    sits: every page up to and including its own, with Show more carrying
+    on from there. A pk that isn't one of ``product``'s listed reviews, or
+    isn't a number, gets the ordinary first page; so does the viewer's own
+    review, which is in the "Your review" slot instead.
+    """
+    listed = Review.objects.filter(product=product).listed_for(user)
+    review = listed.filter(pk=review_pk).first() if str(review_pk).isdigit() else None
+    if review is None:
+        return list_context(user, product)
+    last_page = listed.newer_than(review).count() // REVIEWS_PER_PAGE + 1
+    context = list_context(user, product, DEFAULT_SORT, last_page)
+    context["reviews"] = listed.sorted_by(DEFAULT_SORT)[: last_page * REVIEWS_PER_PAGE]
+    return context
 
 
 class ReviewListView(View):
@@ -313,3 +341,44 @@ class RemoveReviewView(ReviewActionMixin, View):
             REMOVED_TEMPLATE,
             {"summary": Review.objects.filter(product=review.product).rating_summary()},
         )
+
+
+# --- The back office ----------------------------------------------------------
+#
+# The Reviews tab: the one place reviews are moderated, since they are kept
+# out of the Django admin. The ``section`` context entry drives the active
+# tab in the staff shell.
+
+
+class ManageReviewListView(StaffRequiredMixin, ListView):
+    """Every review, removed and staff ones included, 20 a page.
+
+    Sorted by ``?sort=`` (Reviewer A–Z by default, Product A–Z or
+    Newest), searched by ``?q=`` and filtered by ``?product=``,
+    ``?rating=``, ``?author=`` and ``?status=``, all through
+    ``ReviewFilterForm``; they compose, and the pagination links keep
+    them. This is the back office, so rows name the author by username
+    and full name, with their profile picture, and the staff member who
+    edited or removed the review.
+    """
+
+    template_name = "reviews/manage_reviews.html"
+    context_object_name = "reviews"
+    paginate_by = 20
+    extra_context = {"section": "reviews"}
+
+    def get_queryset(self):
+        self.filter_form = ReviewFilterForm(self.request.GET)
+        return (
+            Review.objects.filtered(**self.filter_form.filters())
+            .sorted_for_staff(self.filter_form.chosen_sort())
+            .select_related("product", "user", "moderated_by", "removed_by")
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["filter_form"] = self.filter_form
+        # Tells the empty state whether the filters emptied the list or the
+        # store simply has no reviews yet.
+        context["any_reviews"] = Review.objects.exists()
+        return context

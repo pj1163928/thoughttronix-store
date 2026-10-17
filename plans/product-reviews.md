@@ -38,8 +38,11 @@ Durable decisions that apply across all phases:
     and `category`
   - the product page's review list: `sort=newest|highest|lowest` and
     `page`
-  - the Reviews tab: `product` (pk), `rating` (stored half-star value),
-    `author=customer|staff`, `status=live|removed` and `page`
+  - the product page itself: `review` (a review pk), from the Reviews
+    tab's "View on product page" link
+  - the Reviews tab: `q`, `sort=reviewer|product|newest`, `product` (pk),
+    `rating` (stored half-star value), `author=customer|staff`,
+    `status=live|removed` and `page`
 - **Models**:
   - `Review`: `user` (FK, cascade), `product` (FK, cascade,
     `related_name="reviews"`), `rating`, `headline`, `comment`, created
@@ -352,21 +355,41 @@ gains one removed review.
 
 A "Reviews" tab in the back-office rail (`section="reviews"`) opens
 `reviews:manage`, visible to all staff. It lists every review, removed
-and staff ones included, newest first, 20 per page. Each row shows the
-product (linked to its page), the author's username and full name, the
-rating, headline and comment, live or removed status, "Edited", "Edited
-by <staff username>", and who removed it and when. Filters for product,
-rating, author type and status compose and survive pagination.
+and staff ones included, 20 per page. Each row leads with the author's
+profile picture, full name and username, then the product (linked to its
+page), the rating, headline and comment, live or removed status,
+"Edited", "Edited by <staff username>", and who removed it and when. A
+sort menu offers Reviewer A–Z (the default: first name, then last name,
+accounts without a first name last), Product A–Z and Newest, each ending
+newest first. A search box matches every word against the author's
+username and names, the product name, the headline and the comment.
+Search and the filters for product, rating, author type and status
+compose and survive pagination. Each live row links to "View on product
+page", which opens the product page listed down to that review and
+briefly highlights it (a CSS `:target` rule, no JavaScript).
+
+*Changed 2026-10-16 at the user's request, after the phase was first
+built with newest-first order and product-led rows: the reviewer sort,
+the search, profile pictures and the jump link were added. The
+querystring gains `q` and `sort=reviewer|product|newest`, and the
+product page gains `review` (a review pk to list down to).*
 
 ### Acceptance criteria
 
-- [ ] Customers and visitors can't reach the tab; all staff can.
-- [ ] The list includes removed and staff reviews, newest first, 20 per
-      page.
-- [ ] Each filter narrows the list, filters combine, and pagination keeps
+- [x] Customers and visitors can't reach the tab; all staff can.
+- [x] The list includes removed and staff reviews, 20 per page, sorted
+      by reviewer name by default, or by product or newest on request.
+- [x] Each filter narrows the list, filters combine, and pagination keeps
       them.
-- [ ] Rows name the staff member who last edited or removed the review.
-- [ ] The tab shows as active in the rail.
+- [x] The search finds a review by any word of the author's username or
+      name, the product, the headline or the comment, and composes with
+      the filters and pagination.
+- [x] Rows lead with the author's profile picture and name.
+- [x] Rows name the staff member who last edited or removed the review.
+- [x] A live row's "View on product page" opens the product page with
+      that review listed and highlighted, however far down it sits;
+      removed rows have no link.
+- [x] The tab shows as active in the rail.
 
 ---
 

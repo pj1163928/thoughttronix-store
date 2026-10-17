@@ -7,7 +7,7 @@
   <div class="mt-6">
     {% include "reviews/partials/_your_review.html" %}
   </div>
-  {% if page.object_list %}<h3 class="sr-only">Other reviews</h3>{% endif %}
+  {% if reviews %}<h3 class="sr-only">Other reviews</h3>{% endif %}
   {# Sorting a single review would change nothing. #}
   {% if page.paginator.count > 1 %}
     <div class="mt-6">

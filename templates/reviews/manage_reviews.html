@@ -1,0 +1,84 @@
+{% extends "backoffice/base.html" %}
+
+{% block title %}Reviews — Back office{% endblock %}
+
+{% block backoffice %}
+  {# A plain GET form: the search, sort and filters are querystring parameters, so they #}
+  {# compose, can be bookmarked, and pagination keeps them. #}
+  <form method="get" action="{% url 'reviews:manage' %}" class="mb-6 flex flex-col gap-3">
+    <div class="flex flex-wrap items-end justify-between gap-3">
+      <h2 class="text-xl font-semibold">
+        {{ page_obj.paginator.count }} review{{ page_obj.paginator.count|pluralize }}
+      </h2>
+      <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+        <label class="w-full sm:w-auto">
+          <span class="sr-only">{{ filter_form.q.label }}</span>
+          {{ filter_form.q }}
+        </label>
+        <label class="flex w-full items-center gap-2 text-sm sm:w-auto">
+          <span class="shrink-0 opacity-70">{{ filter_form.sort.label }}</span>
+          {{ filter_form.sort }}
+        </label>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      {% for field in filter_form %}
+        {% if field.name != "q" and field.name != "sort" %}
+          <label class="w-full sm:w-auto">
+            <span class="sr-only">{{ field.label }}</span>
+            {{ field }}
+          </label>
+        {% endif %}
+      {% endfor %}
+      <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+      {% if filter_form.is_active %}
+        {# Keeps the sort: it narrows nothing. #}
+        <a href="{% querystring q=None product=None rating=None author=None status=None page=None %}"
+           class="btn btn-ghost btn-sm">Clear filters</a>
+      {% endif %}
+    </div>
+  </form>
+
+  {% if reviews %}
+    <ul class="flex flex-col gap-4">
+      {% for review in reviews %}
+        <li>{% include "reviews/partials/_manage_review.html" %}</li>
+      {% endfor %}
+    </ul>
+
+    {% if is_paginated %}
+      <div class="mt-8 flex justify-center">
+        <div class="join">
+          {% if page_obj.has_previous %}
+            <a href="{% querystring page=page_obj.previous_page_number %}" class="btn join-item">«</a>
+          {% else %}
+            <button class="btn join-item btn-disabled">«</button>
+          {% endif %}
+          <button class="btn join-item pointer-events-none">
+            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+          </button>
+          {% if page_obj.has_next %}
+            <a href="{% querystring page=page_obj.next_page_number %}" class="btn join-item">»</a>
+          {% else %}
+            <button class="btn join-item btn-disabled">»</button>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  {% else %}
+    <div class="py-16 text-center">
+      {% if any_reviews %}
+        <p class="text-5xl">🔍</p>
+        <p class="mt-4 text-xl font-semibold">No reviews match that search</p>
+        <p class="mt-2 opacity-70">Every opinion on file is somewhere else.</p>
+        <a href="{% url 'reviews:manage' %}" class="btn btn-primary btn-sm mt-6">
+          Show all reviews
+        </a>
+      {% else %}
+        <p class="text-5xl">💬</p>
+        <p class="mt-4 text-xl font-semibold">No reviews yet</p>
+        <p class="mt-2 opacity-70">The customers are still forming opinions. We'd know.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

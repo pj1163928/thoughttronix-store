@@ -23,6 +23,9 @@
        class="tab {% if section == 'discounts' %}tab-active{% endif %}"
        href="{% url 'orders:manage_discounts' %}">Discounts</a>
     <a role="tab"
+       class="tab {% if section == 'reviews' %}tab-active{% endif %}"
+       href="{% url 'reviews:manage' %}">Reviews</a>
+    <a role="tab"
        class="tab {% if section == 'dashboard' %}tab-active{% endif %}"
        href="{% url 'dashboard:index' %}">Dashboard</a>
     {# Superusers only, and only for tidiness: the admin's own checks are the gate. #}

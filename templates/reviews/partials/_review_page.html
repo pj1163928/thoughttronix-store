@@ -1,7 +1,9 @@
 {# One page of everyone else's reviews (reviews.views.list_context), then Show more if any #}
 {# remain. Rendered into #review-list on page load and by a sort change, and in place of #}
-{# the button it follows by Show more, whose URL carries the current sort. #}
-{% for review in page.object_list %}
+{# the button it follows by Show more, whose URL carries the current sort. A jump from the #}
+{# back office lists every page down to its review in ``reviews``, then carries on from #}
+{# ``page``. #}
+{% for review in reviews %}
   {# The row's id is what a staff removal swaps away, the review and its spacing with it. #}
   <div id="review-row-{{ review.pk }}" class="py-6">
     {% include "reviews/partials/_review.html" %}

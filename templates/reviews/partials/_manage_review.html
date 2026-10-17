@@ -1,0 +1,83 @@
+{# One review as the back office's Reviews tab shows it, led by its author: unlike the #}
+{# public page, it names them by full name and username, and names the staff member who #}
+{# edited or removed it. The id lets later swaps find it. #}
+<article id="review-{{ review.pk }}"
+         class="rounded-box bg-base-100 p-4 shadow-md {% if review.removed_at %}opacity-75{% endif %}">
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="flex min-w-0 items-center gap-3">
+      {# Decorative: the name beside it says who it is. #}
+      <div class="avatar shrink-0">
+        <div class="w-12 rounded-full">
+          {% include "products/partials/_picture.html" with pic=review.user.avatar_picture width=48 height=48 decorative=True only %}
+        </div>
+      </div>
+      <div class="min-w-0">
+        <p class="font-semibold leading-tight">{{ review.user.display_name }}</p>
+        <p class="font-mono text-sm opacity-70">{{ review.user.username }}</p>
+      </div>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      {% if review.removed_at %}
+        <span class="badge badge-error badge-outline badge-sm">Removed</span>
+      {% else %}
+        <span class="badge badge-success badge-outline badge-sm">Live</span>
+      {% endif %}
+      {% if review.by_staff %}
+        <span class="badge badge-info badge-sm">Staff</span>
+      {% else %}
+        <span class="badge badge-ghost badge-sm">Customer</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <p class="mt-3 text-sm">
+    <span class="opacity-70">on</span>
+    <a href="{{ review.product.get_absolute_url }}" class="link-hover font-semibold">{{ review.product.name }}</a>
+  </p>
+
+  <div class="mt-2 flex flex-wrap items-center gap-2">
+    {% include "reviews/partials/_stars.html" with rating=review.rating label=review.get_rating_display only %}
+    <span class="text-sm font-semibold" aria-hidden="true">{{ review.stars|floatformat:1 }}</span>
+  </div>
+
+  {% if review.headline %}
+    <h3 class="mt-2 font-semibold">{{ review.headline }}</h3>
+  {% endif %}
+  {% if review.comment %}
+    <p class="mt-2 break-words">{{ review.comment|linebreaksbr }}</p>
+  {% else %}
+    <p class="mt-2 italic opacity-60">Text deleted by its author.</p>
+  {% endif %}
+
+  <ul class="mt-3 flex flex-col gap-1 text-sm opacity-70">
+    <li>
+      Posted <time datetime="{{ review.created_at|date:'c' }}">{{ review.created_at|date:"M j, Y" }}</time>
+    </li>
+    {% if review.edited_at %}
+      <li>Edited <time datetime="{{ review.edited_at|date:'c' }}">{{ review.edited_at|date:"M j, Y" }}</time></li>
+    {% endif %}
+    {% if review.moderated_at %}
+      <li>
+        Edited by
+        {% if review.moderated_by %}<span class="font-mono">{{ review.moderated_by.username }}</span>{% else %}a former staff member{% endif %}
+        <time datetime="{{ review.moderated_at|date:'c' }}">{{ review.moderated_at|date:"M j, Y" }}</time>
+      </li>
+    {% endif %}
+    {% if review.removed_at %}
+      <li class="text-error">
+        Removed by
+        {% if review.removed_by %}<span class="font-mono">{{ review.removed_by.username }}</span>{% else %}a former staff member{% endif %}
+        on <time datetime="{{ review.removed_at|date:'c' }}">{{ review.removed_at|date:"M j, Y" }}</time>
+      </li>
+    {% endif %}
+  </ul>
+
+  {% if not review.removed_at %}
+    {# Removed reviews are hidden from the public page, so there is nothing to jump to. #}
+    {# ?review= lists the product page down to this review; the fragment highlights it. #}
+    <div class="mt-3">
+      <a href="{{ review.product.get_absolute_url }}?review={{ review.pk }}#review-{{ review.pk }}"
+         class="btn btn-ghost btn-xs">View on product page →</a>
+    </div>
+  {% endif %}
+</article>

@@ -138,7 +138,36 @@
   }
 }
 
+/* A review jumped to from the back office's "View on product page" link
+   (reviews/partials/_review.html, #review-<pk>). The anchor is a fragment, so :target
+   finds it without JavaScript: it glows briefly, then settles. The margin leaves room
+   above it, so the glow isn't clipped at the top of the window. */
+article[id^="review-"]:target {
+  scroll-margin-top: 6rem;
+  border-radius: var(--radius-box);
+  outline-offset: 0.75rem;
+  animation: review-highlight 3s ease-out;
+}
+
+@keyframes review-highlight {
+  0%,
+  40% {
+    background-color: color-mix(in oklab, var(--color-warning) 18%, transparent);
+    outline: 2px solid var(--color-warning);
+  }
+  100% {
+    background-color: transparent;
+    outline: 2px solid transparent;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  /* No glow; a steady outline still marks the review. */
+  article[id^="review-"]:target {
+    animation: none;
+    outline: 2px solid var(--color-warning);
+  }
+
   .icon-draw :is(path, circle) {
     stroke-dashoffset: 0;
     animation: none;

@@ -1,7 +1,7 @@
 from django import template
 
 from reviews.models import RatingSummary, Review
-from reviews.views import list_context, section_context
+from reviews.views import revealing_list_context, section_context
 
 register = template.Library()
 
@@ -11,12 +11,14 @@ def reviews_section(context, product):
     """The product page's Reviews section, in the signed-in user's current state.
 
     A tag rather than view context so ``products`` never imports this
-    app, as with ``{% wishlist_button %}``.
+    app, as with ``{% wishlist_button %}``. A ``?review=<pk>`` from the
+    back office's "View on product page" link lists reviews down to that
+    one, so its ``#review-<pk>`` anchor is on the page to jump to.
     """
     request = context["request"]
     return {
         **section_context(request.user, product),
-        **list_context(request.user, product),
+        **revealing_list_context(request.user, product, request.GET.get("review", "")),
         "user": request.user,
         "request": request,
     }
