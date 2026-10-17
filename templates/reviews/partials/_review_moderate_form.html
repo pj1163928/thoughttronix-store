@@ -1,9 +1,11 @@
+{% load reviews_extras %}
 {# The staff form swapped over someone else's review by its Edit: headline and comment #}
 {# only. The rating is the customer's and is shown, not offered. It takes the review's #}
 {# id, so Cancel can swap the review back over it and a save can swap in the result: #}
-{# the review, or this form again with its errors. #}
+{# the review, or this form again with its errors. Shared with the Reviews tab, where #}
+{# back_office makes its URLs ask for the tab's row instead of the product page's. #}
 <form id="review-{{ review.pk }}"
-      hx-post="{% url 'reviews:moderate' review.pk %}"
+      hx-post="{% review_url 'reviews:moderate' review.pk %}"
       hx-target="#review-{{ review.pk }}"
       hx-swap="outerHTML"
       class="space-y-4 rounded-box border border-info/40 bg-base-100 p-4">
@@ -27,7 +29,7 @@
     <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
     {# Puts the review back as it was; the GET changes nothing. #}
     <button type="button" class="btn btn-ghost btn-sm"
-            hx-get="{% url 'reviews:detail' review.pk %}"
+            hx-get="{% review_url 'reviews:detail' review.pk %}"
             hx-target="#review-{{ review.pk }}"
             hx-swap="outerHTML">Cancel</button>
   </div>

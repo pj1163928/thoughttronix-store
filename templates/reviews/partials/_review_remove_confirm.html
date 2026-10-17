@@ -1,16 +1,18 @@
+{% load reviews_extras %}
 {# The inline confirmation swapped over someone else's review in the list by a staff #}
 {# member's Remove. It takes the review's id, so Cancel can swap the review back over it #}
-{# unchanged. Remove posts and swaps the review's whole row away with the answer. #}
+{# unchanged. Remove posts and swaps the review's whole row away with the answer. On #}
+{# the Reviews tab (back_office) it swaps only the review, which comes back removed. #}
 <div id="review-{{ review.pk }}" class="rounded-box border border-error/40 bg-base-100 p-4">
   <p class="font-semibold">Remove this review?</p>
   <p class="mt-1 text-sm opacity-70">It disappears from the store and leaves every rating. Its author is told it was removed.</p>
   <div class="mt-3 flex flex-wrap gap-2">
     <button type="button" class="btn btn-sm btn-error"
-            hx-post="{% url 'reviews:remove' review.pk %}"
-            hx-target="#review-row-{{ review.pk }}"
+            hx-post="{% review_url 'reviews:remove' review.pk %}"
+            hx-target="{% if back_office %}#review-{{ review.pk }}{% else %}#review-row-{{ review.pk }}{% endif %}"
             hx-swap="outerHTML">Remove</button>
     <button type="button" class="btn btn-sm btn-ghost"
-            hx-get="{% url 'reviews:detail' review.pk %}"
+            hx-get="{% review_url 'reviews:detail' review.pk %}"
             hx-target="#review-{{ review.pk }}"
             hx-swap="outerHTML">Cancel</button>
   </div>

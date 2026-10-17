@@ -22,6 +22,14 @@ urlpatterns = [
     ),
     path("reviews/<int:pk>/remove/", views.RemoveReviewView.as_view(), name="remove"),
     path(
+        "reviews/<int:pk>/restore/", views.RestoreReviewView.as_view(), name="restore"
+    ),
+    path(
+        "reviews/<int:pk>/allow-new/",
+        views.AllowNewReviewView.as_view(),
+        name="allow_new",
+    ),
+    path(
         "backoffice/reviews/",
         views.ManageReviewListView.as_view(),
         name="manage",

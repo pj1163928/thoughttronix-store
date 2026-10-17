@@ -29,6 +29,11 @@ CONFIRM_DELETE_TEMPLATE = "reviews/partials/_review_delete_confirm.html"
 CONFIRM_REMOVE_TEMPLATE = "reviews/partials/_review_remove_confirm.html"
 REMOVED_TEMPLATE = "reviews/partials/_review_removed.html"
 PAGE_TEMPLATE = "reviews/partials/_review_page.html"
+MANAGE_ROW_TEMPLATE = "reviews/partials/_manage_review.html"
+DELETED_TEMPLATE = "reviews/partials/_manage_review_deleted.html"
+# The querystring a Reviews tab request carries (?from=manage), so the shared
+# endpoints answer with the tab's partials rather than the product page's.
+FROM_TAB = "manage"
 REVIEWS_PER_PAGE = 10
 
 
@@ -172,21 +177,40 @@ class ReviewActionMixin(LoginRequiredMixin):
 
     A removed review is a 404 unless the view ``allow_removed``, and even
     then only for its author, who may see the removal notice and delete
-    the text.
+    the text. ``removed_only`` views (Restore, Allow a new review) turn
+    that around: they reach removed reviews alone, so no POST can restore
+    or delete a live one through them.
+
+    The product page and the Reviews tab share these endpoints. A request
+    from the tab carries ``?from=manage`` (``from_tab``) and is answered
+    with the tab's partials: ``partial_context`` tells the shared forms
+    and confirmations to keep pointing back at the tab, and ``tab_row``
+    is the row itself.
     """
 
     author_only = False
     staff_only = False
     allow_removed = False
+    removed_only = False
+
+    @property
+    def from_tab(self):
+        return self.request.GET.get("from") == FROM_TAB
 
     def get_review(self):
         reviews = Review.objects.changeable_by(self.request.user)
-        if not self.allow_removed:
+        if self.removed_only:
+            reviews = reviews.removed()
+        elif not self.allow_removed:
             reviews = reviews.live()
         review = get_object_or_404(
             reviews.select_related("product", "user"), pk=self.kwargs["pk"]
         )
-        if review.removed_at and review.user_id != self.request.user.pk:
+        if (
+            review.removed_at
+            and not self.removed_only
+            and review.user_id != self.request.user.pk
+        ):
             raise Http404("Only its author may reach a removed review.")
         if self.author_only and review.user_id != self.request.user.pk:
             raise Http404("Only the author edits their review here.")
@@ -196,19 +220,44 @@ class ReviewActionMixin(LoginRequiredMixin):
             raise Http404("Staff moderate other people's reviews here.")
         return review
 
+    def partial_context(self, review, **context):
+        """A shared partial's context, marked for the tab when the request came from it."""
+        return {"review": review, "back_office": self.from_tab, **context}
+
+    def tab_row(self, review):
+        """The Reviews tab's row for ``review``, as it now is."""
+        return render(
+            self.request, MANAGE_ROW_TEMPLATE, {"review": review, "back_office": True}
+        )
+
+    def tab_deleted(self, pk, author, product):
+        """The Reviews tab's note where a review deleted for good used to be."""
+        return render(
+            self.request,
+            DELETED_TEMPLATE,
+            {
+                "pk": pk,
+                "author": author,
+                "product": product,
+                "can_write": Review.can_write(author, product),
+            },
+        )
+
 
 class ReviewDetailView(ReviewActionMixin, View):
     """HTMX: one review, as it is now — what Cancel swaps back over a form.
 
     A removed review comes back to its author as the removal notice, never
     its text: that is what "Keep it" swaps back over the delete
-    confirmation.
+    confirmation. From the Reviews tab, it is the tab's row.
     """
 
     allow_removed = True
 
     def get(self, request, pk):
         review = self.get_review()
+        if self.from_tab:
+            return self.tab_row(review)
         template = REMOVED_NOTICE_TEMPLATE if review.removed_at else REVIEW_TEMPLATE
         return render(request, template, {"review": review})
 
@@ -219,7 +268,9 @@ class EditReviewView(ReviewActionMixin, View):
     The GET swaps the filled-in form over the review and changes nothing.
     A valid POST saves, marks the review "Edited" if anything changed,
     and answers with the slot plus both averages out of band; an invalid
-    one answers with the slot holding the form and its errors.
+    one answers with the slot holding the form and its errors. From the
+    Reviews tab (a staff member's own review), a save answers with the
+    tab's row, and a rejected one with the form alone.
     """
 
     author_only = True
@@ -229,11 +280,9 @@ class EditReviewView(ReviewActionMixin, View):
         return render(
             request,
             FORM_TEMPLATE,
-            {
-                "review": review,
-                "product": review.product,
-                "form": ReviewForm(instance=review),
-            },
+            self.partial_context(
+                review, product=review.product, form=ReviewForm(instance=review)
+            ),
         )
 
     def post(self, request, pk):
@@ -244,6 +293,14 @@ class EditReviewView(ReviewActionMixin, View):
                 form.instance.edited_at = timezone.now()
             form.save()
             form = None
+        if self.from_tab:
+            if form is None:
+                return self.tab_row(review)
+            return render(
+                request,
+                FORM_TEMPLATE,
+                self.partial_context(review, product=review.product, form=form),
+            )
         return render(
             request,
             SLOT_UPDATE_TEMPLATE,
@@ -263,21 +320,29 @@ class DeleteReviewView(ReviewActionMixin, View):
     author who is still eligible, the not-bought note for one who isn't.
     A removed review only loses its text: the row stays, so its author
     still can't post it again, and the slot keeps the removal notice.
+
+    From the Reviews tab (a staff member's own review), the answer is the
+    tab's row with its text gone, or a note where a deleted review was.
     """
 
     author_only = True
     allow_removed = True
 
     def get(self, request, pk):
-        return render(request, CONFIRM_DELETE_TEMPLATE, {"review": self.get_review()})
+        review = self.get_review()
+        return render(request, CONFIRM_DELETE_TEMPLATE, self.partial_context(review))
 
     def post(self, request, pk):
         review = self.get_review()
         product = review.product
         if review.removed_at:
             review.delete_text()
+            if self.from_tab:
+                return self.tab_row(review)
         else:
             review.delete()
+            if self.from_tab:
+                return self.tab_deleted(pk, request.user, product)
         return render(
             request, SLOT_UPDATE_TEMPLATE, section_context(request.user, product)
         )
@@ -289,9 +354,10 @@ class ModerateReviewView(ReviewActionMixin, View):
     The GET swaps the staff form over the review in the list and changes
     nothing; its Cancel fetches the review back through ``reviews:detail``.
     A valid POST saves, marks the review "Edited by ThoughtTronix staff"
-    if anything changed, and answers with the review; an invalid one
-    answers with the form and its errors. The rating can't change, so
-    neither can any average, and nothing is swapped out of band.
+    if anything changed, and answers with the review (the tab's row, from
+    the Reviews tab); an invalid one answers with the form and its errors.
+    The rating can't change, so neither can any average, and nothing is
+    swapped out of band.
     """
 
     staff_only = True
@@ -301,7 +367,7 @@ class ModerateReviewView(ReviewActionMixin, View):
         return render(
             request,
             MODERATE_FORM_TEMPLATE,
-            {"review": review, "form": ModerationForm(instance=review)},
+            self.partial_context(review, form=ModerationForm(instance=review)),
         )
 
     def post(self, request, pk):
@@ -309,12 +375,14 @@ class ModerateReviewView(ReviewActionMixin, View):
         form = ModerationForm(request.POST, instance=review)
         if not form.is_valid():
             return render(
-                request, MODERATE_FORM_TEMPLATE, {"review": review, "form": form}
+                request, MODERATE_FORM_TEMPLATE, self.partial_context(review, form=form)
             )
         if form.has_changed():
             form.instance.moderated_at = timezone.now()
             form.instance.moderated_by = request.user
         form.save()
+        if self.from_tab:
+            return self.tab_row(review)
         return render(request, REVIEW_TEMPLATE, {"review": review})
 
 
@@ -326,21 +394,66 @@ class RemoveReviewView(ReviewActionMixin, View):
     back through ``reviews:detail``. The POST removes it and answers with
     nothing for its place in the list, which takes it off the page, plus
     both averages out of band: a removed review leaves every number.
+
+    From the Reviews tab, which lists removed reviews too, the answer is
+    the row in its removed state, now offering Restore and Allow a new
+    review.
     """
 
     staff_only = True
 
     def get(self, request, pk):
-        return render(request, CONFIRM_REMOVE_TEMPLATE, {"review": self.get_review()})
+        review = self.get_review()
+        return render(request, CONFIRM_REMOVE_TEMPLATE, self.partial_context(review))
 
     def post(self, request, pk):
         review = self.get_review()
         review.remove(request.user)
+        if self.from_tab:
+            return self.tab_row(review)
         return render(
             request,
             REMOVED_TEMPLATE,
             {"summary": Review.objects.filter(product=review.product).rating_summary()},
         )
+
+
+class RestoreReviewView(ReviewActionMixin, View):
+    """HTMX, back office only: put a staff-removed review back on the page.
+
+    Staff, on someone else's removed review; anything else is a 404. A
+    review whose author has deleted its text stays removed
+    (``Review.restore``), and the answer is the row as it now is, so a
+    stale Restore button gives way to the truth.
+    """
+
+    staff_only = True
+    removed_only = True
+
+    def post(self, request, pk):
+        review = self.get_review()
+        review.restore()
+        return self.tab_row(review)
+
+
+class AllowNewReviewView(ReviewActionMixin, View):
+    """HTMX, back office only: delete a removed review for good.
+
+    The row held the one-review-per-product constraint, so deleting it
+    frees its author to write again if they still hold a qualifying
+    order. Staff, on someone else's removed review; a live review is a
+    404, never deleted. The answer replaces the row with a note saying
+    whether the author can write again.
+    """
+
+    staff_only = True
+    removed_only = True
+
+    def post(self, request, pk):
+        review = self.get_review()
+        author, product = review.user, review.product
+        review.delete()
+        return self.tab_deleted(pk, author, product)
 
 
 # --- The back office ----------------------------------------------------------
@@ -365,7 +478,7 @@ class ManageReviewListView(StaffRequiredMixin, ListView):
     template_name = "reviews/manage_reviews.html"
     context_object_name = "reviews"
     paginate_by = 20
-    extra_context = {"section": "reviews"}
+    extra_context = {"section": "reviews", "back_office": True}
 
     def get_queryset(self):
         self.filter_form = ReviewFilterForm(self.request.GET)

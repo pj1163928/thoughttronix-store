@@ -2694,3 +2694,418 @@ def test_the_review_jumped_to_is_highlighted_by_css():
 
     assert 'article[id^="review-"]:target' in css
     assert "@keyframes review-highlight" in css
+
+
+# --- The back office: the Reviews tab's actions --------------------------------
+
+
+def restore_url(review):
+    return reverse("reviews:restore", kwargs={"pk": review.pk})
+
+
+def allow_new_url(review):
+    return reverse("reviews:allow_new", kwargs={"pk": review.pk})
+
+
+def test_restore_brings_a_removed_review_back_only_while_its_text_remains(
+    client, staff_user, product
+):
+    """Restore puts a removed review back on the page and into the numbers.
+
+    Once its author has deleted the text, the tab offers no Restore, and a
+    direct POST leaves the review removed: an empty review can never go
+    back on the page.
+    """
+    make_review(shopper("gfinch", "Gordon", "Finch"), product, rating=10)
+    kept = make_review(
+        shopper("dcole", "Dana", "Cole"),
+        product,
+        rating=2,
+        comment="Taken down by mistake.",
+    )
+    blanked = make_review(shopper("tokafor", "Tobi", "Okafor"), product, rating=2)
+    for review in (kept, blanked):
+        review.remove(staff_user)
+    blanked.delete_text()
+    client.force_login(staff_user)
+
+    tab = client.get(manage_url()).content.decode()
+    assert f'hx-post="{restore_url(kept)}"' in tab
+    assert restore_url(blanked) not in tab
+
+    client.post(restore_url(blanked))
+
+    blanked.refresh_from_db()
+    assert blanked.removed_at is not None
+    assert blanked.removed_by == staff_user
+
+    client.post(restore_url(kept))
+
+    kept.refresh_from_db()
+    assert (kept.removed_at, kept.removed_by) == (None, None)
+    page = client.get(product.get_absolute_url()).content.decode()
+    assert "Taken down by mistake." in page
+    assert str(kept.pk) in REVIEW_ID.findall(page)
+    assert str(blanked.pk) not in REVIEW_ID.findall(page)
+    assert "3.0 from 2 customer reviews" in page
+
+
+def test_only_staff_restore_or_allow_new_and_only_on_other_peoples_removed_reviews(
+    client, customer, staff_user, product
+):
+    """Everyone else, and every live review, is a 404 that changes nothing.
+
+    The author, staff or not, is outside it: their own removed review
+    offers the author's Delete instead. A live review is outside it too, so
+    no hand-written POST can delete one through Allow a new review.
+    """
+    removed = make_review(customer, product, comment="Taken down by the store.")
+    removed.remove(staff_user)
+    live = make_review(shopper("dcole", "Dana", "Cole"), product)
+    own = make_review(staff_user, product)
+    admin = shopper("ada", "Ada", "Admin")
+    admin.is_staff = True
+    admin.save()
+    own.remove(admin)
+
+    for user, review in [
+        (customer, removed),
+        (shopper("gfinch", "Gordon", "Finch"), removed),
+        (staff_user, live),
+        (staff_user, own),
+    ]:
+        client.force_login(user)
+        for url in (restore_url(review), allow_new_url(review)):
+            assert client.post(url).status_code == HTTPStatus.NOT_FOUND, (
+                user.username,
+                url,
+            )
+
+    assert set(Review.objects.all()) == {removed, live, own}
+    for review in (removed, own):
+        review.refresh_from_db()
+        assert review.removed_at is not None
+    live.refresh_from_db()
+    assert live.removed_at is None
+
+    client.force_login(staff_user)
+    assert client.post(allow_new_url(removed)).status_code == HTTPStatus.OK
+    assert not Review.objects.filter(pk=removed.pk).exists()
+
+
+FROM_TAB = "?from=manage"
+HX_URL = re.compile(r'hx-(?:get|post)="([^"]+)"')
+
+
+@pytest.mark.parametrize(
+    ("action", "method", "own", "data", "answer"),
+    [
+        ("detail", "get", False, {}, "row"),
+        ("moderate", "post", False, {"comment": "Corrected by the store."}, "row"),
+        ("remove", "post", False, {}, "row"),
+        ("edit", "post", True, VALID, "row"),
+        ("delete", "post", True, {}, "deleted"),
+    ],
+)
+def test_every_action_from_the_tab_answers_with_the_tabs_partial(
+    client, customer, staff_user, product, action, method, own, data, answer
+):
+    """Posted from the Reviews tab, an action answers with the tab's row, not the page's.
+
+    The row names its author by username, which the public page never
+    does, and nothing is swapped out of band: the tab has no averages.
+    Every action button in the answer still says it comes from the tab, so
+    the next click answers in kind. Deleting outright leaves a note in the
+    row's place.
+    """
+    theirs = make_review(customer, product)
+    mine = make_review(staff_user, product)
+    review = mine if own else theirs
+    client.force_login(staff_user)
+    url = reverse(f"reviews:{action}", kwargs={"pk": review.pk}) + FROM_TAB
+
+    reply = getattr(client, method)(url, data).content.decode()
+
+    assert "hx-swap-oob" not in reply
+    assert 'id="your-review"' not in reply
+    if answer == "deleted":
+        assert reply.strip().startswith(f'<div id="review-{review.pk}"')
+        assert f"Your review of {product.name} was deleted." in reply
+        return
+    assert reply.strip().startswith(f'<article id="review-{review.pk}"')
+    assert f'opacity-70">{review.user.username}</p>' in reply
+    tab_actions = [u for u in HX_URL.findall(reply) if "/restore/" not in u]
+    tab_actions = [u for u in tab_actions if "/allow-new/" not in u]
+    assert all(u.endswith(FROM_TAB) for u in tab_actions), tab_actions
+
+
+def from_tab(name, review):
+    return reverse(f"reviews:{name}", kwargs={"pk": review.pk}) + FROM_TAB
+
+
+def test_staff_edit_from_the_tab_corrects_the_text_and_names_the_editor(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product, rating=7, comment="Some rude words here.")
+    client.force_login(staff_user)
+
+    reply = client.post(
+        from_tab("moderate", review),
+        {"headline": "", "comment": "Some kind words here.", "rating": "2"},
+    )
+
+    review.refresh_from_db()
+    assert review.comment == "Some kind words here."
+    assert review.rating == 7
+    assert review.moderated_by == staff_user
+    assert review.moderated_at is not None
+    assert 'Edited by <span class="font-mono">employee</span>' in flat(reply)
+    page = client.get(product.get_absolute_url()).content.decode()
+    assert "Edited by ThoughtTronix staff" in page
+
+
+def test_remove_from_the_tab_turns_the_row_removed_and_leaves_the_numbers(
+    client, customer, staff_user, product
+):
+    make_review(shopper("dcole", "Dana", "Cole"), product, rating=10)
+    review = make_review(customer, product, rating=2, comment="Taken down here.")
+    client.force_login(staff_user)
+
+    reply = flat(client.post(from_tab("remove", review)))
+
+    review.refresh_from_db()
+    assert review.removed_by == staff_user
+    assert review.removed_at is not None
+    assert ">Removed</span>" in reply
+    assert 'Removed by <span class="font-mono">employee</span> on' in reply
+    assert f'hx-post="{restore_url(review)}"' in reply
+    assert f'hx-post="{allow_new_url(review)}"' in reply
+    assert "View on product page" not in reply
+    page = client.get(product.get_absolute_url()).content.decode()
+    assert "Taken down here." not in page
+    assert "5.0 from 1 customer review" in page
+
+
+@pytest.mark.parametrize(
+    ("name", "own"),
+    [("moderate", False), ("remove", False), ("edit", True), ("delete", True)],
+)
+def test_forms_and_confirmations_opened_from_the_tab_stay_in_the_tab(
+    client, customer, staff_user, product, name, own
+):
+    """Their buttons post back with ?from=manage and swap the row, not the slot or list row.
+
+    Opening one changes nothing.
+    """
+    review = make_review(staff_user if own else customer, product)
+    client.force_login(staff_user)
+
+    reply = client.get(from_tab(name, review)).content.decode()
+
+    assert f'id="review-{review.pk}"' in reply
+    assert "#your-review" not in reply
+    assert f"#review-row-{review.pk}" not in reply
+    urls = HX_URL.findall(reply)
+    assert urls
+    assert all(url.endswith(FROM_TAB) for url in urls), urls
+    review.refresh_from_db()
+    assert (review.removed_at, review.moderated_at, review.edited_at) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_an_invalid_edit_from_the_tab_re_renders_the_form_in_the_row(
+    client, customer, staff_user, product
+):
+    theirs = make_review(customer, product, comment="The original words.")
+    mine = make_review(staff_user, product, comment="My original words.")
+    client.force_login(staff_user)
+
+    moderated = client.post(from_tab("moderate", theirs), {"comment": "short"})
+    edited = client.post(from_tab("edit", mine), {**VALID, "comment": "short"})
+
+    for reply, review in ((moderated, theirs), (edited, mine)):
+        body = reply.content.decode()
+        assert f'<form id="review-{review.pk}"' in body
+        assert "Write at least 10 characters." in body
+        assert "hx-swap-oob" not in body
+        assert all(url.endswith(FROM_TAB) for url in HX_URL.findall(body))
+    theirs.refresh_from_db()
+    mine.refresh_from_db()
+    assert (theirs.comment, mine.comment) == (
+        "The original words.",
+        "My original words.",
+    )
+
+
+def test_a_staff_members_own_review_offers_the_authors_actions(
+    client, staff_user, product, featured_product
+):
+    live = make_review(staff_user, product)
+    removed = make_review(staff_user, featured_product, comment="Removed by Ada.")
+    admin = shopper("ada", "Ada", "Admin")
+    admin.is_staff = True
+    admin.save()
+    removed.remove(admin)
+    client.force_login(staff_user)
+
+    tab = client.get(manage_url()).content.decode()
+
+    assert f'hx-get="{from_tab("edit", live)}"' in tab
+    assert f'hx-get="{from_tab("delete", live)}"' in tab
+    assert f'hx-get="{from_tab("delete", removed)}"' in tab
+    for review in (live, removed):
+        assert reverse("reviews:moderate", kwargs={"pk": review.pk}) not in tab
+        assert reverse("reviews:remove", kwargs={"pk": review.pk}) not in tab
+        assert restore_url(review) not in tab
+        assert allow_new_url(review) not in tab
+
+
+def test_other_peoples_reviews_offer_the_staff_actions(
+    client, customer, staff_user, product
+):
+    live = make_review(customer, product)
+    removed = make_review(shopper("dcole", "Dana", "Cole"), product)
+    removed.remove(staff_user)
+    client.force_login(staff_user)
+
+    tab = client.get(manage_url()).content.decode()
+
+    assert f'hx-get="{from_tab("moderate", live)}"' in tab
+    assert f'hx-get="{from_tab("remove", live)}"' in tab
+    assert restore_url(live) not in tab
+    assert allow_new_url(live) not in tab
+    assert f'hx-post="{restore_url(removed)}"' in tab
+    assert f'hx-post="{allow_new_url(removed)}"' in tab
+    for review in (live, removed):
+        assert reverse("reviews:edit", kwargs={"pk": review.pk}) not in tab
+        assert reverse("reviews:delete", kwargs={"pk": review.pk}) not in tab
+
+
+def test_allow_a_new_review_frees_a_still_eligible_author_to_write_again(
+    client, customer, staff_user, product
+):
+    buy(customer, product)
+    review = make_review(customer, product, comment="Taken down by the store.")
+    review.remove(staff_user)
+    client.force_login(staff_user)
+
+    reply = flat(client.post(allow_new_url(review)))
+
+    assert reply.startswith(f'<div id="review-{review.pk}"')
+    assert (
+        f"Review deleted. {customer.display_name} can now write a new review of "
+        "Seraphine Home Hub." in reply
+    )
+    assert not Review.objects.filter(pk=review.pk).exists()
+
+    client.force_login(customer)
+    page = client.get(product.get_absolute_url()).content.decode()
+    assert REMOVED_NOTICE not in page
+    assert f'hx-post="{create_url(product)}"' in page
+    client.post(create_url(product), VALID)
+    assert Review.objects.filter(user=customer, product=product).exists()
+
+
+def test_allow_a_new_review_says_when_the_author_can_no_longer_write(
+    client, customer, staff_user, product
+):
+    buy(customer, product, status=Order.Status.CANCELLED)
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    client.force_login(staff_user)
+
+    reply = html.unescape(flat(client.post(allow_new_url(review))))
+
+    assert (
+        f"{customer.display_name} no longer holds an order for Seraphine Home Hub, "
+        "so they can't write a new one." in reply
+    )
+    client.force_login(customer)
+    page = html.unescape(client.get(product.get_absolute_url()).content.decode())
+    assert NOT_BOUGHT in page
+
+
+def test_a_staff_member_deleting_their_own_removed_review_from_the_tab(
+    client, staff_user, product
+):
+    """Its text goes, the row stays removed, and no Restore appears."""
+    review = make_review(staff_user, product, comment="Removed by Ada.")
+    admin = shopper("ada", "Ada", "Admin")
+    admin.is_staff = True
+    admin.save()
+    review.remove(admin)
+    client.force_login(staff_user)
+
+    reply = flat(client.post(from_tab("delete", review)))
+
+    review.refresh_from_db()
+    assert (review.comment, review.removed_by) == ("", admin)
+    assert reply.startswith(f'<article id="review-{review.pk}"')
+    assert "Text deleted by its author." in reply
+    assert restore_url(review) not in reply
+    assert reverse("reviews:delete", kwargs={"pk": review.pk}) not in reply
+
+
+def test_restore_answers_with_the_live_row(client, customer, staff_user, product):
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    client.force_login(staff_user)
+
+    reply = flat(client.post(restore_url(review)))
+
+    assert reply.startswith(f'<article id="review-{review.pk}"')
+    assert ">Live</span>" in reply
+    assert f'hx-get="{from_tab("remove", review)}"' in reply
+    assert "View on product page" in reply
+
+
+def test_a_refused_restore_answers_with_the_row_as_it_is(
+    client, customer, staff_user, product
+):
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    review.delete_text()
+    client.force_login(staff_user)
+
+    reply = client.post(restore_url(review))
+
+    assert reply.status_code == HTTPStatus.OK
+    body = flat(reply)
+    assert ">Removed</span>" in body
+    assert "Text deleted by its author." in body
+    assert restore_url(review) not in body
+
+
+@pytest.mark.parametrize("name", ["restore", "allow_new"])
+def test_restore_and_allow_new_are_post_only_and_need_signing_in(
+    client, customer, staff_user, product, name
+):
+    review = make_review(customer, product)
+    review.remove(staff_user)
+    url = reverse(f"reviews:{name}", kwargs={"pk": review.pk})
+
+    anonymous = client.post(url)
+    client.force_login(staff_user)
+    fetched = client.get(url)
+
+    assert anonymous.status_code == HTTPStatus.FOUND
+    assert reverse("accounts:login") in anonymous.url
+    assert fetched.status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    review.refresh_from_db()
+    assert review.removed_at is not None
+
+
+def test_the_product_page_still_answers_with_its_own_partials(
+    client, customer, staff_user, product
+):
+    """Without ?from=manage, Remove still swaps the list row away with the averages."""
+    review = make_review(customer, product)
+    client.force_login(staff_user)
+
+    reply = client.post(remove_url(review)).content.decode()
+
+    assert "hx-swap-oob" in reply
+    assert f'<article id="review-{review.pk}"' not in reply

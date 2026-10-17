@@ -1,7 +1,8 @@
 from django import template
+from django.urls import reverse
 
 from reviews.models import RatingSummary, Review
-from reviews.views import revealing_list_context, section_context
+from reviews.views import FROM_TAB, revealing_list_context, section_context
 
 register = template.Library()
 
@@ -42,6 +43,19 @@ def card_rating(product):
             count=product.rating_count, average=product.rating_average
         )
     }
+
+
+@register.simple_tag(takes_context=True)
+def review_url(context, name, pk):
+    """The URL of a review action, marked as coming from the Reviews tab when it does.
+
+    The product page and the Reviews tab share the form and confirmation
+    partials. On the tab (``back_office`` in the context) each action URL
+    carries ``?from=manage``, so the view answers with the tab's row
+    rather than the product page's partial.
+    """
+    url = reverse(name, kwargs={"pk": pk})
+    return f"{url}?from={FROM_TAB}" if context.get("back_office") else url
 
 
 @register.filter

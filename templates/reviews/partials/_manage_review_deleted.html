@@ -1,0 +1,12 @@
+{# What the Reviews tab shows where a review was, once it is deleted for good: by staff's #}
+{# "Allow a new review", or by a staff member deleting their own review. It keeps the #}
+{# review's id so the row stays put until the page is next loaded. #}
+<div id="review-{{ pk }}" class="rounded-box border border-base-300 bg-base-100 p-4 text-sm">
+  {% if author == user %}
+    <p>Your review of {{ product.name }} was deleted.</p>
+  {% elif can_write %}
+    <p>Review deleted. {{ author.display_name }} can now write a new review of {{ product.name }}.</p>
+  {% else %}
+    <p>Review deleted. {{ author.display_name }} no longer holds an order for {{ product.name }}, so they can't write a new one.</p>
+  {% endif %}
+</div>

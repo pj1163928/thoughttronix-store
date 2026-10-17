@@ -316,6 +316,27 @@ class Review(models.Model):
         self.removed_by = staff
         self.save(update_fields=["removed_at", "removed_by", "updated_at"])
 
+    @property
+    def can_restore(self):
+        """Whether staff may put this review back: removed, with its text still there.
+
+        Once its author has deleted the text there is nothing to show, and
+        an empty review must never go back on the page.
+        """
+        return self.removed_at is not None and bool(self.comment)
+
+    def restore(self):
+        """Undo a removal: the review is back on the page and in every number.
+
+        Does nothing unless ``can_restore``, so a stale Restore button
+        can't bring back a review whose author has since deleted its text.
+        """
+        if not self.can_restore:
+            return
+        self.removed_at = None
+        self.removed_by = None
+        self.save(update_fields=["removed_at", "removed_by", "updated_at"])
+
     def delete_text(self):
         """The author's delete of a removed review: blank its words, keep the row.
 

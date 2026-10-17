@@ -1,6 +1,7 @@
+{% load reviews_extras %}
 {# One review as the back office's Reviews tab shows it, led by its author: unlike the #}
 {# public page, it names them by full name and username, and names the staff member who #}
-{# edited or removed it. The id lets later swaps find it. #}
+{# edited or removed it. The id is what every action on the row swaps. #}
 <article id="review-{{ review.pk }}"
          class="rounded-box bg-base-100 p-4 shadow-md {% if review.removed_at %}opacity-75{% endif %}">
   <div class="flex flex-wrap items-start justify-between gap-3">
@@ -72,12 +73,53 @@
     {% endif %}
   </ul>
 
-  {% if not review.removed_at %}
-    {# Removed reviews are hidden from the public page, so there is nothing to jump to. #}
-    {# ?review= lists the product page down to this review; the fragment highlights it. #}
-    <div class="mt-3">
+  {# The actions, in place. Each swaps this row for a form, a confirmation or its new #}
+  {# state; the shared ones carry ?from=manage so they answer with the tab's partials. #}
+  <div class="mt-3 flex flex-wrap items-center gap-2">
+    {% if review.user_id == user.pk %}
+      {# A staff member's own review: the author's actions, as on the product page. #}
+      {% if not review.removed_at %}
+        <button type="button" class="btn btn-sm btn-outline"
+                hx-get="{% review_url 'reviews:edit' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Edit</button>
+        <button type="button" class="btn btn-sm btn-ghost text-error"
+                hx-get="{% review_url 'reviews:delete' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Delete</button>
+      {% elif review.comment %}
+        <button type="button" class="btn btn-sm btn-ghost text-error"
+                hx-get="{% review_url 'reviews:delete' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Delete its text</button>
+      {% endif %}
+    {% elif review.removed_at %}
+      {# Back office only: no ?from= needed, they always answer with the tab's row. #}
+      {% if review.can_restore %}
+        <button type="button" class="btn btn-sm btn-outline"
+                hx-post="{% url 'reviews:restore' review.pk %}"
+                hx-target="#review-{{ review.pk }}"
+                hx-swap="outerHTML">Restore</button>
+      {% endif %}
+      <button type="button" class="btn btn-sm btn-ghost text-error"
+              hx-post="{% url 'reviews:allow_new' review.pk %}"
+              hx-target="#review-{{ review.pk }}"
+              hx-swap="outerHTML">Allow a new review</button>
+    {% else %}
+      <button type="button" class="btn btn-sm btn-outline"
+              hx-get="{% review_url 'reviews:moderate' review.pk %}"
+              hx-target="#review-{{ review.pk }}"
+              hx-swap="outerHTML">Edit</button>
+      <button type="button" class="btn btn-sm btn-ghost text-error"
+              hx-get="{% review_url 'reviews:remove' review.pk %}"
+              hx-target="#review-{{ review.pk }}"
+              hx-swap="outerHTML">Remove</button>
+    {% endif %}
+    {% if not review.removed_at %}
+      {# Removed reviews are hidden from the public page, so there is nothing to jump to. #}
+      {# ?review= lists the product page down to this review; the fragment highlights it. #}
       <a href="{{ review.product.get_absolute_url }}?review={{ review.pk }}#review-{{ review.pk }}"
          class="btn btn-ghost btn-xs">View on product page →</a>
-    </div>
-  {% endif %}
+    {% endif %}
+  </div>
 </article>

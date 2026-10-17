@@ -43,6 +43,9 @@ Durable decisions that apply across all phases:
   - the Reviews tab: `q`, `sort=reviewer|product|newest`, `product` (pk),
     `rating` (stored half-star value), `author=customer|staff`,
     `status=live|removed` and `page`
+  - the shared review endpoints (`detail`, `edit`, `delete`, `moderate`,
+    `remove`): `from=manage` when used from the Reviews tab, so they
+    answer with the tab's partials (added in Phase 10)
 - **Models**:
   - `Review`: `user` (FK, cascade), `product` (FK, cascade,
     `related_name="reviews"`), `rating`, `headline`, `comment`, created
@@ -409,17 +412,17 @@ member's own reviews offer the author actions instead.
 
 ### Acceptance criteria
 
-- [ ] Edit and Remove on the tab swap the row in place, with the same
+- [x] Edit and Remove on the tab swap the row in place, with the same
       results as on the product page.
-- [ ] Restore puts a removed review back on the product page and into the
+- [x] Restore puts a removed review back on the product page and into the
       numbers.
-- [ ] Restore is absent, and refused on a direct POST, once the author has
+- [x] Restore is absent, and refused on a direct POST, once the author has
       blanked the text.
-- [ ] Allow a new review deletes the row, and the still-eligible author
+- [x] Allow a new review deletes the row, and the still-eligible author
       then sees the form.
-- [ ] A staff member's own review offers Edit and Delete as the author,
+- [x] A staff member's own review offers Edit and Delete as the author,
       not the staff actions.
-- [ ] Every action's response is the tab's partial, not the product
+- [x] Every action's response is the tab's partial, not the product
       page's.
 
 ---

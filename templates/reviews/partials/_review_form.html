@@ -1,11 +1,13 @@
+{% load reviews_extras %}
 {# The author's review form. With a review it edits that review: it takes the review's #}
 {# id, so Cancel can swap the review back over it. Without one it writes a new review. #}
 {# Either way it posts over HTMX and swaps the whole slot with the answer: the review, #}
-{# or this form again with its errors. #}
-<form {% if review %}id="review-{{ review.pk }}" hx-post="{% url 'reviews:edit' review.pk %}"{% else %}hx-post="{% url 'reviews:create' product.pk %}"{% endif %}
-      hx-target="#your-review"
+{# or this form again with its errors. On the Reviews tab (back_office), editing a staff #}
+{# member's own review, it swaps only its row instead, and its URLs say so. #}
+<form {% if review %}id="review-{{ review.pk }}" hx-post="{% review_url 'reviews:edit' review.pk %}"{% else %}hx-post="{% url 'reviews:create' product.pk %}"{% endif %}
+      hx-target="{% if back_office %}#review-{{ review.pk }}{% else %}#your-review{% endif %}"
       hx-swap="outerHTML"
-      class="mt-4 space-y-4">
+      class="{% if back_office %}rounded-box bg-base-100 p-4 shadow-md{% else %}mt-4{% endif %} space-y-4">
   <fieldset>
     <legend class="label mb-1">Rating</legend>
     {# DaisyUI half-star picker, no JavaScript. The hidden radio is "no rating yet"; #}
@@ -38,7 +40,7 @@
       <button type="submit" class="btn btn-primary">Save changes</button>
       {# Puts the review back as it was; the GET changes nothing. #}
       <button type="button" class="btn btn-ghost"
-              hx-get="{% url 'reviews:detail' review.pk %}"
+              hx-get="{% review_url 'reviews:detail' review.pk %}"
               hx-target="#review-{{ review.pk }}"
               hx-swap="outerHTML">Cancel</button>
     </div>

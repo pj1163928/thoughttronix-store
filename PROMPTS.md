@@ -30,6 +30,114 @@ Each entry has this shape:
 
 ---
 
+## 2026-10-16 — Product Reviews: Phase 10/12, Back-office Reviews tab: actions
+
+### Prompts
+
+1. The `/implement` skill, given `product-reviews phase 10`.
+2. "Begin implementing phases" (approving the brief and the three TDD
+   behaviors).
+3. "Continue implementing phases" (approving behavior 1's red test).
+4. "Continue next phase" (moving on to behavior 2).
+5. "Continue next phase" (approving behavior 2's red test).
+6. "Continue next behavior" (moving on to behavior 3).
+7. "Continue development" (approving behavior 3's red test).
+8. "Continue developing the features" (finishing the phase).
+9. Answered "Don't commit" to the commit offer.
+
+### Summary
+
+- **Outcome:**
+  - Every Reviews tab row now offers its actions in place. Other
+    people's live reviews: Edit (the staff form) and Remove. Removed
+    reviews: Restore, only while the comment isn't blank, and Allow a
+    new review. A staff member's own reviews: the author's Edit and
+    Delete, or "Delete its text" once removed.
+  - The tab reuses the product page's form and confirmation partials.
+    Every request from the tab carries `?from=manage`, and the shared
+    endpoints answer it with the tab's row: Remove turns the row
+    removed, Restore turns it live, a save shows "Edited by <username>",
+    and Cancel and Keep it bring the row back. The product page's
+    answers are unchanged.
+  - Allow a new review deletes the row and leaves a note in its place
+    saying whether the author can write again; a still-eligible author
+    then sees the form on the product page.
+  - 24 new tests; the full suite has 1,294, all passing. `ruff check` and `ruff format` are clean. No
+    migrations; the seed is unchanged.
+- **Changes:**
+  - `reviews/models.py` — `Review.can_restore` (removed, text still
+    there) and `Review.restore()`, which does nothing otherwise.
+  - `reviews/views.py` — `ReviewActionMixin` gains `removed_only` (for
+    endpoints that may only reach removed reviews), `from_tab`,
+    `partial_context()`, `tab_row()` and `tab_deleted()`. Detail, edit,
+    delete, moderate and remove answer with the tab's partials when
+    `from_tab`. New `RestoreReviewView` and `AllowNewReviewView`
+    (staff, someone else's removed review, POST only). `FROM_TAB`, and
+    `back_office` in the tab page's context.
+  - `reviews/urls.py` — `reviews:restore` and `reviews:allow_new`, at
+    the plan's paths.
+  - `reviews/templatetags/reviews_extras.py` — `{% review_url %}`: a
+    review action's URL, with `?from=manage` when `back_office` is in
+    the context.
+  - `templates/reviews/partials/_manage_review.html` — the row's action
+    buttons.
+  - `templates/reviews/partials/_manage_review_deleted.html` — new: the
+    note where a review deleted for good used to be.
+  - `templates/reviews/partials/_review_form.html`,
+    `_review_moderate_form.html`, `_review_remove_confirm.html`,
+    `_review_delete_confirm.html` — URLs through `{% review_url %}`;
+    swap targets and the edit form's card styling switch on
+    `back_office`.
+  - `reviews/tests.py` — the three TDD tests and ordinary tests for the
+    rest (below).
+  - `plans/product-reviews.md` — Phase 10's criteria ticked; the
+    querystring list gains `from=manage`.
+- **TDD:** three behaviors, each red on an assertion before its code:
+  1. Restore works only while the text remains: the tab offers it only
+     then, a direct POST on a blanked review leaves it removed, and a
+     restored review is back on the product page and in the average.
+  2. Restore and Allow a new review reach only staff acting on someone
+     else's removed review: the author, another customer, a live review
+     and a staff member's own review all get a 404 and nothing changes.
+  3. Every action from the tab (detail, moderate, remove, author edit,
+     author delete) answers with the tab's partial, with no out-of-band
+     swap, and every button in it still carries `?from=manage`.
+  Ordinary tests cover: staff edit and remove from the tab with the same
+  results as the product page; forms and confirmations opened from the
+  tab keep tab targets and change nothing; invalid edits from the tab;
+  which buttons own and other people's reviews offer; Allow a new review
+  for an eligible and an ineligible author; deleting one's own removed
+  review from the tab; Restore's live answer and its refused answer;
+  sign-in and POST-only on the new endpoints; and the product page still
+  getting its own partials.
+- **Decisions:**
+  - How a view knows the tab asked: a `from=manage` querystring
+    parameter carried by the shared partials, rather than separate URLs
+    or reading HTMX headers. Added to the plan's querystring list.
+  - Remove on the tab turns the row removed rather than swapping it
+    away, since the tab lists removed reviews.
+  - A refused Restore (text deleted) answers 200 with the row as it is,
+    so a stale button catches up, like a stale create tab.
+  - Allow a new review has no confirmation, following the plan's
+    POST-only URL table; this was flagged in the brief and not changed.
+  - After Allow a new review, or a staff member deleting their own live
+    review on the tab, a one-line note replaces the row. The "N reviews"
+    heading updates on the next page load.
+  - A staff member's own removed review offers only "Delete its text":
+    no Restore of one's own review.
+- **Deviations:** none. The brief and all three TDD tests were approved
+  as proposed.
+- **Sideways:**
+  - Two bash heredocs failed on quoting, writing nothing; the code and
+    tests went through scratch files instead.
+  - Two Allow a new review tests passed a `-k allow_new` filter only
+    because they weren't selected ("allow_a_new_review" doesn't match);
+    the full suite caught them. They expected "Casey Monroe", but the
+    `customer` fixture has no name, so `display_name` is the username.
+    The assertions now use `customer.display_name`.
+
+---
+
 ## 2026-10-16 — Product Reviews: Phase 9/12, Back-office Reviews tab: list and filters
 
 ### Prompts
